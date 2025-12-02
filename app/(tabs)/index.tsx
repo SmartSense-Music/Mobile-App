@@ -8,7 +8,13 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Accelerometer, Gyroscope, LightSensor } from "expo-sensors";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ColorValue,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import Animated, {
   FadeInDown,
   FadeInUp,
@@ -281,7 +287,7 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar style={activeTheme === "dark" ? "light" : "dark"} />
       <LinearGradient
-        colors={currentTheme.background}
+        colors={currentTheme.background as readonly [ColorValue, ColorValue]}
         style={StyleSheet.absoluteFill}
       />
 

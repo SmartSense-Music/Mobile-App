@@ -30,6 +30,12 @@ const MAPPING = {
   "sun.max.fill": "wb-sunny",
   trash: "delete",
   map: "map",
+  "backward.fill": "skip-previous",
+  "forward.fill": "skip-next",
+  "pause.fill": "pause",
+  sparkles: "auto-awesome",
+  "moon.fill": "dark-mode",
+  "arrow.right": "arrow-forward",
 } as IconMapping;
 
 /**

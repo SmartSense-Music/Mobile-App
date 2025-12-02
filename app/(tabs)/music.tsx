@@ -1,10 +1,13 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
+import { useAuth } from "@/context/AuthContext";
+import { BackendService } from "@/services/backend";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import React from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   FlatList,
   StyleSheet,
@@ -30,6 +33,46 @@ const PLAYLIST = [
 ];
 
 export default function MusicScreen() {
+  const { user, spotifyToken, signInWithSpotify, isLoading } = useAuth();
+
+  const handlePlayContext = async () => {
+    if (spotifyToken) {
+      // Mock context for now, ideally passed from global state
+      const context = { activity: "Stationary", timeOfDay: "Morning" };
+      await BackendService.playContextSong(spotifyToken, context);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color={Palette.gold} />
+      </View>
+    );
+  }
+
+  if (!spotifyToken || !user) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <StatusBar style="light" />
+        <LinearGradient
+          colors={[Palette.black, Palette.darkGray]}
+          style={StyleSheet.absoluteFill}
+        />
+        <IconSymbol name="music.note" size={60} color={"#1DB954"} />
+        <Text style={styles.authTitle}>Connect Spotify</Text>
+        <Text style={styles.authSubtitle}>Link your account to play music</Text>
+
+        <TouchableOpacity
+          style={[styles.authButton, { backgroundColor: "#1DB954" }]}
+          onPress={signInWithSpotify}
+        >
+          <Text style={styles.authButtonText}>Connect Spotify</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
@@ -74,7 +117,7 @@ export default function MusicScreen() {
         <TouchableOpacity>
           <IconSymbol name="backward.fill" size={35} color={Palette.white} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.playButton}>
+        <TouchableOpacity style={styles.playButton} onPress={handlePlayContext}>
           <LinearGradient
             colors={[Palette.gold, "#FFC107"]}
             style={styles.playButtonGradient}
@@ -128,6 +171,37 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Palette.black,
     paddingTop: 60,
+  },
+  center: {
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  authTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: Palette.white,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  authSubtitle: {
+    fontSize: 16,
+    color: Palette.lightGray,
+    marginBottom: 30,
+    textAlign: "center",
+  },
+  authButton: {
+    backgroundColor: Palette.white,
+    paddingVertical: 15,
+    paddingHorizontal: 30,
+    borderRadius: 30,
+    width: "80%",
+    alignItems: "center",
+  },
+  authButtonText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: Palette.black,
   },
   header: {
     alignItems: "center",
