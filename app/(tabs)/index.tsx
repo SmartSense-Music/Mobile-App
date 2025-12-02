@@ -516,9 +516,16 @@ export default function HomeScreen() {
               </View>
               <View style={styles.buttonTextContainer}>
                 <Text style={styles.actionButtonTitle}>Start Listening</Text>
-                <Text style={styles.actionButtonSubtitle}>Smart Playlist Ready</Text>
+                <Text style={styles.actionButtonSubtitle}>
+                  Smart Playlist Ready
+                </Text>
               </View>
-              <IconSymbol name="play.fill" size={28} color={Palette.white} style={{ opacity: 0.9 }} />
+              <IconSymbol
+                name="play.fill"
+                size={28}
+                color={Palette.white}
+                style={{ opacity: 0.9 }}
+              />
             </LinearGradient>
           </TouchableOpacity>
         </Animated.View>
@@ -664,13 +671,13 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     backgroundColor: Palette.white,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 12,
   },
   buttonTextContainer: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   actionButtonTitle: {
     color: Palette.white,
@@ -679,7 +686,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   actionButtonSubtitle: {
-    color: 'rgba(255,255,255,0.9)',
+    color: "rgba(255,255,255,0.9)",
     fontSize: 11,
     fontWeight: "500",
   },
