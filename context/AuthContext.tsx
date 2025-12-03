@@ -1,19 +1,20 @@
-import { SPOTIFY_CONFIG } from "@/constants/config";
-import { BackendService, SpotifyService, UserData } from "@/services/backend";
 import {
-  makeRedirectUri,
-  ResponseType,
-  useAuthRequest,
-} from "expo-auth-session";
-import * as WebBrowser from "expo-web-browser";
-import React, { createContext, useContext, useEffect, useState } from "react";
+  useAuth as useClerkAuth,
+  useUser as useClerkUser,
+} from "@clerk/clerk-expo";
+import React, { createContext, useContext } from "react";
 
-WebBrowser.maybeCompleteAuthSession();
+// Simple User Type (Mapped from Clerk)
+export type UserData = {
+  id: string;
+  name: string;
+  email?: string;
+  imageUrl?: string;
+};
 
 type AuthContextType = {
   user: UserData | null;
-  spotifyToken: string | null;
-  signInWithSpotify: () => void;
+  signIn: () => void;
   signOut: () => void;
   isLoading: boolean;
 };
@@ -25,103 +26,33 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserData | null>(null);
-  const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const { signOut, isLoaded } = useClerkAuth();
+  const { user: clerkUser, isLoaded: isUserLoaded } = useClerkUser();
 
-  // Spotify Auth Request
-  const redirectUri = makeRedirectUri({
-    scheme: "smartsense",
-    path: "auth",
-  });
+  const isLoading = !isLoaded || !isUserLoaded;
 
-  console.log("Redirect URI:", redirectUri);
-
-  const [spotifyRequest, spotifyResponse, spotifyPromptAsync] = useAuthRequest(
-    {
-      clientId: SPOTIFY_CONFIG.clientId,
-      scopes: SPOTIFY_CONFIG.scopes,
-      redirectUri,
-      responseType: ResponseType.Code,
-      usePKCE: true,
-    },
-    SPOTIFY_CONFIG.discovery
-  );
-
-  // Handle Spotify Response
-  useEffect(() => {
-    if (spotifyResponse?.type === "success") {
-      const { code } = spotifyResponse.params;
-      exchangeSpotifyCode(code, spotifyRequest?.codeVerifier);
-    }
-  }, [spotifyResponse]);
-
-  const exchangeSpotifyCode = async (code: string, codeVerifier?: string) => {
-    if (!codeVerifier) return;
-    setIsLoading(true);
-    try {
-      const redirectUri = makeRedirectUri({
-        scheme: "smartsense",
-        path: "auth",
-      });
-      const response = await fetch(SPOTIFY_CONFIG.discovery.tokenEndpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          client_id: SPOTIFY_CONFIG.clientId,
-          code,
-          redirect_uri: redirectUri,
-          code_verifier: codeVerifier,
-        }).toString(),
-      });
-
-      const data = await response.json();
-      if (data.access_token) {
-        setSpotifyToken(data.access_token);
-
-        // Get Spotify User ID
-        const profile = await SpotifyService.getProfile(data.access_token);
-
-        // Create User Data from Spotify Profile
-        const userData: UserData = {
-          id: profile.id,
-          email: profile.email,
-          name: profile.display_name,
-          picture: profile.images?.[0]?.url,
-        };
-
-        setUser(userData);
-
-        // Sync with backend (Store tokens and user info)
-        console.log("Syncing Spotify User:", userData);
-        await BackendService.syncSpotifyUser(userData, data.refresh_token);
+  const user: UserData | null = clerkUser
+    ? {
+        id: clerkUser.id,
+        name: clerkUser.fullName || clerkUser.firstName || "User",
+        email: clerkUser.primaryEmailAddress?.emailAddress,
+        imageUrl: clerkUser.imageUrl,
       }
-    } catch (error) {
-      console.error("Failed to exchange spotify token", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    : null;
 
-  const signInWithSpotify = () => {
-    spotifyPromptAsync();
-  };
-
-  const signOut = () => {
-    setUser(null);
-    setSpotifyToken(null);
+  const signIn = () => {
+    // This function is kept for compatibility.
+    // With Clerk, you typically navigate to a dedicated Sign In screen
+    // or use the <SignIn /> component directly.
+    console.log("Navigate to Sign In Screen");
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        spotifyToken,
-        signInWithSpotify,
-        signOut,
+        signIn,
+        signOut: () => signOut(),
         isLoading,
       }}
     >

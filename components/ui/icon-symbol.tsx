@@ -36,6 +36,8 @@ const MAPPING = {
   sparkles: "auto-awesome",
   "moon.fill": "dark-mode",
   "arrow.right": "arrow-forward",
+  "clock.fill": "schedule",
+  "cloud.upload.fill": "cloud-upload",
 } as IconMapping;
 
 /**

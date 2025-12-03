@@ -135,13 +135,10 @@ export default function HomeScreen() {
             recordingRef.current = null;
           }
 
-          const recording = new Audio.Recording();
-          recordingRef.current = recording;
-
-          await recording.prepareToRecordAsync(
+          const { recording } = await Audio.Recording.createAsync(
             Audio.RecordingOptionsPresets.LOW_QUALITY
           );
-          await recording.startAsync();
+          recordingRef.current = recording;
 
           // Sample for a short time
           setTimeout(async () => {
@@ -528,7 +525,12 @@ export default function HomeScreen() {
         >
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => router.push("/music")}
+            onPress={() =>
+              router.push({
+                pathname: "/music",
+                params: { environment, timeOfDay, locationName },
+              })
+            }
           >
             <LinearGradient
               colors={[Palette.red, Palette.crimson]}

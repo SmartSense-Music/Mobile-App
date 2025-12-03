@@ -1,15 +1,18 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
-import { BackendService } from "@/services/backend";
+import { MusicService, Song } from "@/services/backend";
+import { Audio } from "expo-av";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -19,149 +22,284 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 
 const { width } = Dimensions.get("window");
 
-const PLAYLIST = [
-  {
-    id: "1",
-    title: "Morning Boost",
-    artist: "SmartSense Mix",
-    duration: "3:45",
-  },
-  { id: "2", title: "Focus Flow", artist: "Ambient Works", duration: "4:20" },
-  { id: "3", title: "Running Tempo", artist: "High BPM", duration: "3:10" },
-  { id: "4", title: "Night Chill", artist: "LoFi Beats", duration: "2:55" },
-  { id: "5", title: "Deep Sleep", artist: "Nature Sounds", duration: "5:00" },
-];
-
 export default function MusicScreen() {
-  const { user, spotifyToken, signInWithSpotify, isLoading } = useAuth();
+  const router = useRouter();
+  const { user } = useAuth();
+  const params = useLocalSearchParams();
 
-  const handlePlayContext = async () => {
-    if (spotifyToken) {
-      // Mock context for now, ideally passed from global state
-      const context = { activity: "Stationary", timeOfDay: "Morning" };
-      await BackendService.playContextSong(spotifyToken, context);
+  // Static context values since SmartContext was removed
+  const defaultTimeOfDay =
+    new Date().getHours() < 12
+      ? "Morning"
+      : new Date().getHours() < 18
+      ? "Afternoon"
+      : "Evening";
+
+  const timeOfDay = (params.timeOfDay as string) || defaultTimeOfDay;
+  const locationName = (params.locationName as string) || "Unknown";
+  const environment = (params.environment as string) || "Relax";
+
+  const [playlist, setPlaylist] = useState<Song[]>([]);
+  const [currentTrack, setCurrentTrack] = useState<Song | null>(null);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const playlistRef = useRef<Song[]>([]);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  useEffect(() => {
+    playlistRef.current = playlist;
+  }, [playlist]);
+
+  // Derived context for music selection
+  const musicContext = useMemo(() => {
+    return {
+      timeOfDay,
+      environment,
+      location: locationName,
+      displayEnv: environment, // For UI display
+    };
+  }, [timeOfDay, locationName, environment]);
+
+  useEffect(() => {
+    loadSongs();
+  }, [musicContext]);
+
+  useEffect(() => {
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync();
+      }
+    };
+  }, []);
+
+  const loadSongs = async () => {
+    setIsLoading(true);
+    console.log("Loading songs for context:", musicContext);
+
+    const songs = await MusicService.getSongs({
+      timeOfDay: musicContext.timeOfDay,
+      environment: musicContext.environment,
+      location: musicContext.location,
+    });
+
+    setPlaylist(songs);
+    if (songs.length > 0 && !currentTrack) {
+      setCurrentTrack(songs[0]);
+    }
+    setIsLoading(false);
+  };
+
+  const playSound = async (track: Song) => {
+    try {
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+      }
+
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: track.url },
+        { shouldPlay: true }
+      );
+
+      soundRef.current = newSound;
+      setSound(newSound);
+      setCurrentTrack(track);
+      setIsPlaying(true);
+
+      newSound.setOnPlaybackStatusUpdate(async (status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          setIsPlaying(false);
+
+          // Auto-play next song
+          const currentPlaylist = playlistRef.current;
+          const currentIndex = currentPlaylist.findIndex(
+            (s) => s.id === track.id
+          );
+          if (
+            currentIndex !== -1 &&
+            currentIndex < currentPlaylist.length - 1
+          ) {
+            const nextSong = currentPlaylist[currentIndex + 1];
+            await playSound(nextSong);
+          }
+        }
+      });
+    } catch (error) {
+      console.error("Error playing sound:", error);
     }
   };
 
-  if (isLoading) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color={Palette.gold} />
-      </View>
-    );
-  }
+  const togglePlayback = async () => {
+    if (!soundRef.current && currentTrack) {
+      await playSound(currentTrack);
+      return;
+    }
 
-  if (!spotifyToken || !user) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <StatusBar style="light" />
-        <LinearGradient
-          colors={[Palette.black, Palette.darkGray]}
-          style={StyleSheet.absoluteFill}
-        />
-        <IconSymbol name="music.note" size={60} color={"#1DB954"} />
-        <Text style={styles.authTitle}>Connect Spotify</Text>
-        <Text style={styles.authSubtitle}>Link your account to play music</Text>
-
-        <TouchableOpacity
-          style={[styles.authButton, { backgroundColor: "#1DB954" }]}
-          onPress={signInWithSpotify}
-        >
-          <Text style={styles.authButtonText}>Connect Spotify</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+    if (soundRef.current) {
+      if (isPlaying) {
+        await soundRef.current.pauseAsync();
+      } else {
+        await soundRef.current.playAsync();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       <LinearGradient
-        colors={[Palette.black, Palette.darkGray]}
+        colors={[Palette.black, "#1a1a1a"]}
         style={StyleSheet.absoluteFill}
       />
 
-      <Animated.View
-        entering={FadeInDown.delay(100).duration(600)}
-        style={styles.header}
-      >
-        <Text style={styles.headerTitle}>NOW PLAYING</Text>
-      </Animated.View>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>SMARTSENSE PLAYER</Text>
+        <View style={styles.contextBadge}>
+          <IconSymbol name="sparkles" size={12} color={Palette.gold} />
+          <Text style={styles.contextText}>
+            {musicContext.timeOfDay} • {musicContext.displayEnv}
+          </Text>
+        </View>
+      </View>
 
-      <Animated.View
-        entering={FadeInDown.delay(200).duration(600)}
-        style={styles.albumArtContainer}
-      >
-        <LinearGradient
-          colors={[Palette.darkGray, "#000"]}
-          style={styles.albumArt}
-        >
-          <IconSymbol name="music.note" size={80} color={Palette.gold} />
-        </LinearGradient>
-        {/* Reflection/Glow effect */}
-        <View style={styles.glow} />
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeInDown.delay(300).duration(600)}
-        style={styles.trackInfo}
-      >
-        <Text style={styles.trackTitle}>Context Aware Mix</Text>
-        <Text style={styles.artistName}>SmartSense AI</Text>
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeInDown.delay(400).duration(600)}
-        style={styles.controls}
-      >
-        <TouchableOpacity>
-          <IconSymbol name="backward.fill" size={35} color={Palette.white} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.playButton} onPress={handlePlayContext}>
-          <LinearGradient
-            colors={[Palette.gold, "#FFC107"]}
-            style={styles.playButtonGradient}
+      {isLoading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Palette.gold} />
+          <Text style={styles.loadingText}>Curating Playlist...</Text>
+        </View>
+      ) : (
+        <>
+          <Animated.View
+            entering={FadeInDown.delay(200).duration(600)}
+            style={styles.playerSection}
           >
-            <IconSymbol name="play.fill" size={35} color={Palette.black} />
-          </LinearGradient>
-        </TouchableOpacity>
-        <TouchableOpacity>
-          <IconSymbol name="forward.fill" size={35} color={Palette.white} />
-        </TouchableOpacity>
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeInUp.delay(500).duration(600)}
-        style={styles.playlistContainer}
-      >
-        <BlurView intensity={20} tint="dark" style={styles.blurList}>
-          <Text style={styles.sectionTitle}>UP NEXT</Text>
-          <FlatList
-            data={PLAYLIST}
-            keyExtractor={(item) => item.id}
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item, index }) => (
-              <Animated.View
-                entering={FadeInDown.delay(600 + index * 100).duration(500)}
-                style={styles.trackItem}
+            <View style={styles.albumArtContainer}>
+              <LinearGradient
+                colors={[Palette.darkGray, "#000"]}
+                style={styles.albumArt}
               >
-                <View style={styles.trackIcon}>
+                {currentTrack?.coverUrl ? (
+                  <Image
+                    source={{ uri: currentTrack.coverUrl }}
+                    style={styles.coverImage}
+                  />
+                ) : (
                   <IconSymbol
                     name="music.note"
-                    size={20}
-                    color={Palette.lightGray}
+                    size={80}
+                    color={Palette.gold}
                   />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.itemTitle}>{item.title}</Text>
-                  <Text style={styles.itemArtist}>{item.artist}</Text>
-                </View>
-                <Text style={styles.itemDuration}>{item.duration}</Text>
-              </Animated.View>
-            )}
-          />
-        </BlurView>
-      </Animated.View>
+                )}
+              </LinearGradient>
+              <View style={styles.glow} />
+            </View>
+
+            <View style={styles.trackInfo}>
+              <Text style={styles.trackTitle} numberOfLines={1}>
+                {currentTrack?.title || "Select a Song"}
+              </Text>
+              <Text style={styles.artistName}>
+                {currentTrack?.artist || "SmartSense"}
+              </Text>
+            </View>
+
+            <View style={styles.controls}>
+              <TouchableOpacity>
+                <IconSymbol
+                  name="backward.fill"
+                  size={30}
+                  color={Palette.white}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.playButton}
+                onPress={togglePlayback}
+              >
+                <LinearGradient
+                  colors={[Palette.gold, "#FFC107"]}
+                  style={styles.playButtonGradient}
+                >
+                  <IconSymbol
+                    name={isPlaying ? "pause.fill" : "play.fill"}
+                    size={35}
+                    color={Palette.black}
+                  />
+                </LinearGradient>
+              </TouchableOpacity>
+              <TouchableOpacity>
+                <IconSymbol
+                  name="forward.fill"
+                  size={30}
+                  color={Palette.white}
+                />
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+
+          <Animated.View
+            entering={FadeInUp.delay(500).duration(600)}
+            style={styles.playlistContainer}
+          >
+            <BlurView intensity={30} tint="dark" style={styles.blurList}>
+              <Text style={styles.sectionTitle}>
+                CURATED FOR {musicContext.displayEnv.toUpperCase() || "YOU"}
+              </Text>
+              <FlatList
+                data={playlist}
+                keyExtractor={(item) => item.id}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 100 }}
+                renderItem={({ item, index }) => (
+                  <TouchableOpacity onPress={() => playSound(item)}>
+                    <Animated.View
+                      entering={FadeInDown.delay(600 + index * 100).duration(
+                        500
+                      )}
+                      style={[
+                        styles.trackItem,
+                        currentTrack?.id === item.id && styles.activeTrackItem,
+                      ]}
+                    >
+                      <View style={styles.trackIcon}>
+                        <IconSymbol
+                          name="music.note"
+                          size={20}
+                          color={
+                            currentTrack?.id === item.id
+                              ? Palette.gold
+                              : Palette.lightGray
+                          }
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.itemTitle,
+                            currentTrack?.id === item.id &&
+                              styles.activeTrackText,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item.title}
+                        </Text>
+                        <Text style={styles.itemArtist} numberOfLines={1}>
+                          {item.artist}
+                        </Text>
+                      </View>
+                      <Text style={styles.itemDuration}>
+                        {Math.floor(item.duration / 60)}:
+                        {String(item.duration % 60).padStart(2, "0")}
+                      </Text>
+                    </Animated.View>
+                  </TouchableOpacity>
+                )}
+              />
+            </BlurView>
+          </Animated.View>
+        </>
+      )}
     </View>
   );
 }
@@ -170,42 +308,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Palette.black,
-    paddingTop: 60,
+    paddingTop: 50,
   },
   center: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
   },
-  authTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: Palette.white,
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  authSubtitle: {
-    fontSize: 16,
+  loadingText: {
     color: Palette.lightGray,
-    marginBottom: 30,
-    textAlign: "center",
-  },
-  authButton: {
-    backgroundColor: Palette.white,
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 30,
-    width: "80%",
-    alignItems: "center",
-  },
-  authButtonText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: Palette.black,
+    marginTop: 10,
+    fontSize: 12,
+    letterSpacing: 1,
   },
   header: {
     alignItems: "center",
-    marginBottom: 30,
+    marginBottom: 20,
   },
   headerTitle: {
     color: Palette.lightGray,
@@ -213,33 +331,56 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     letterSpacing: 2,
     textTransform: "uppercase",
+    marginBottom: 5,
+  },
+  contextBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 215, 0, 0.1)",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 6,
+  },
+  contextText: {
+    color: Palette.gold,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  playerSection: {
+    alignItems: "center",
+    marginBottom: 20,
   },
   albumArtContainer: {
     alignItems: "center",
-    marginBottom: 30,
+    marginBottom: 25,
     position: "relative",
   },
   albumArt: {
-    width: width * 0.7,
-    height: width * 0.7,
+    width: width * 0.6,
+    height: width * 0.6,
     borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
     zIndex: 2,
+    overflow: "hidden",
+  },
+  coverImage: {
+    width: "100%",
+    height: "100%",
   },
   glow: {
     position: "absolute",
     top: 20,
-    width: width * 0.6,
-    height: width * 0.6,
+    width: width * 0.5,
+    height: width * 0.5,
     backgroundColor: Palette.gold,
     opacity: 0.15,
     borderRadius: 20,
     transform: [{ scale: 1.1 }],
     zIndex: 1,
-    // Using shadow for glow
     shadowColor: Palette.gold,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
@@ -247,27 +388,29 @@ const styles = StyleSheet.create({
   },
   trackInfo: {
     alignItems: "center",
-    marginBottom: 40,
+    marginBottom: 25,
+    paddingHorizontal: 40,
   },
   trackTitle: {
     color: Palette.white,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "bold",
     marginBottom: 8,
     letterSpacing: 0.5,
+    textAlign: "center",
   },
   artistName: {
     color: Palette.crimson,
     fontSize: 16,
     fontWeight: "600",
     letterSpacing: 1,
+    textAlign: "center",
   },
   controls: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    gap: 50,
-    marginBottom: 40,
+    gap: 40,
   },
   playButton: {
     shadowColor: Palette.gold,
@@ -277,16 +420,16 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   playButtonGradient: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     justifyContent: "center",
     alignItems: "center",
   },
   playlistContainer: {
     flex: 1,
-    marginHorizontal: 20,
-    marginBottom: 20,
+    marginHorizontal: 15,
+    marginBottom: 10,
     borderRadius: 20,
     overflow: "hidden",
   },
@@ -299,31 +442,31 @@ const styles = StyleSheet.create({
     color: Palette.lightGray,
     fontSize: 12,
     fontWeight: "bold",
-    marginBottom: 20,
+    marginBottom: 15,
     textTransform: "uppercase",
     letterSpacing: 1,
   },
   trackItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 15,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.05)",
   },
   trackIcon: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     backgroundColor: "rgba(255,255,255,0.05)",
-    borderRadius: 10,
+    borderRadius: 8,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 15,
+    marginRight: 12,
   },
   itemTitle: {
     color: Palette.white,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
-    marginBottom: 4,
+    marginBottom: 2,
   },
   itemArtist: {
     color: "#888",
@@ -333,5 +476,14 @@ const styles = StyleSheet.create({
     color: "#666",
     fontSize: 12,
     fontWeight: "500",
+  },
+  activeTrackItem: {
+    backgroundColor: "rgba(255, 215, 0, 0.1)",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    marginHorizontal: -10,
+  },
+  activeTrackText: {
+    color: Palette.gold,
   },
 });

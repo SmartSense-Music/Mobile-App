@@ -1,6 +1,7 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { MusicService, SavedLocation } from "@/services/backend";
+import { useUser } from "@clerk/clerk-expo";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
@@ -21,15 +22,8 @@ import {
 import MapView, { Marker, Region } from "react-native-maps";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 
-type SavedLocation = {
-  id: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-  address?: string;
-};
-
 export default function SettingsScreen() {
+  const { user } = useUser();
   const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [locationName, setLocationName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -54,17 +48,22 @@ export default function SettingsScreen() {
   } | null>(null);
 
   useEffect(() => {
-    loadLocations();
-  }, []);
+    if (user) {
+      loadLocations();
+    }
+  }, [user]);
 
   const loadLocations = async () => {
+    if (!user) return;
     try {
-      const storedLocations = await AsyncStorage.getItem("userLocations");
-      if (storedLocations) {
-        setLocations(JSON.parse(storedLocations));
-      }
+      setLoading(true);
+      const backendLocations = await MusicService.getLocations(user.id);
+      setLocations(backendLocations);
     } catch (error) {
       console.error("Failed to load locations", error);
+      Alert.alert("Error", "Failed to load locations from backend.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -189,34 +188,54 @@ export default function SettingsScreen() {
       return;
     }
 
-    const newLoc: SavedLocation = {
-      id: Date.now().toString(),
-      name: locationName,
-      latitude: selectedLocation.lat,
-      longitude: selectedLocation.lng,
-      address: selectedLocation.address,
-    };
+    setLoading(true);
+    try {
+      const newLoc = await MusicService.saveLocation(user?.id || "guest", {
+        name: locationName,
+        latitude: selectedLocation.lat,
+        longitude: selectedLocation.lng,
+        address: selectedLocation.address,
+      });
 
-    const updatedLocations = [...locations, newLoc];
-    setLocations(updatedLocations);
-    await AsyncStorage.setItem(
-      "userLocations",
-      JSON.stringify(updatedLocations)
-    );
+      if (newLoc) {
+        setLocations((prev) => [...prev, newLoc]);
 
-    // Reset form
-    setLocationName("");
-    setSearchQuery("");
-    setSelectedLocation(null);
-    Alert.alert("Success", "Location saved successfully!");
+        // Reset form
+        setLocationName("");
+        setSearchQuery("");
+        setSelectedLocation(null);
+        Alert.alert("Success", "Location saved to backend successfully!");
+      } else {
+        Alert.alert("Error", "Failed to save location to backend.");
+      }
+    } catch (e) {
+      Alert.alert("Error", "An unexpected error occurred.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const deleteLocation = async (id: string) => {
-    const updatedLocations = locations.filter((loc) => loc.id !== id);
-    setLocations(updatedLocations);
-    await AsyncStorage.setItem(
-      "userLocations",
-      JSON.stringify(updatedLocations)
+    Alert.alert(
+      "Delete Location",
+      "Are you sure you want to delete this location?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setLoading(true);
+            const success = await MusicService.deleteLocation(id);
+            if (success) {
+              setLocations((prev) => prev.filter((loc) => loc.id !== id));
+            } else {
+              Alert.alert("Error", "Failed to delete location.");
+            }
+            setLoading(false);
+          },
+        },
+      ]
     );
   };
 
