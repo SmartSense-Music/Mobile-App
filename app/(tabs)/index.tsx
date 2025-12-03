@@ -1,11 +1,12 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Audio } from "expo-av";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Accelerometer, Gyroscope, LightSensor } from "expo-sensors";
+import { Accelerometer, Gyroscope } from "expo-sensors";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -63,28 +64,186 @@ const THEMES = {
 
 export default function HomeScreen() {
   const router = useRouter();
-  const [sensorData, setSensorData] = useState({
-    accelerometer: { x: 0, y: 0, z: 0 },
-    gyroscope: { x: 0, y: 0, z: 0 },
-    location: null as Location.LocationObject | null,
-    light: 0,
-  });
-
-  const [context, setContext] = useState({
-    activity: "Stationary",
-    timeOfDay: "Day",
-    locationName: "Unknown",
-    environment: "Unknown",
-  });
 
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
+  const [activity, setActivity] = useState("Stationary");
+  const [environment, setEnvironment] = useState("Indoors");
+  const [timeOfDay, setTimeOfDay] = useState("Day");
+  const [locationName, setLocationName] = useState("Unknown");
+  const [soundLevel, setSoundLevel] = useState(0);
+
+  const isRecordingRef = useRef(false);
+  const recordingRef = useRef<Audio.Recording | null>(null);
+
+  // Environment Logic (Time, Location, Sound)
+  useEffect(() => {
+    const checkEnvironment = async () => {
+      // 1. Time
+      const hour = new Date().getHours();
+      const time = hour < 12 ? "Morning" : hour < 18 ? "Afternoon" : "Evening";
+      setTimeOfDay(time);
+
+      // 2. Location
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted") {
+          const loc = await Location.getCurrentPositionAsync({});
+
+          // Check if near any saved location
+          let foundLocation = "Unknown";
+          let minDistance = Infinity;
+
+          const stored = await AsyncStorage.getItem("userLocations");
+          const locations: SavedLocation[] = stored ? JSON.parse(stored) : [];
+
+          for (const saved of locations) {
+            const dist = Math.sqrt(
+              Math.pow(loc.coords.latitude - saved.latitude, 2) +
+                Math.pow(loc.coords.longitude - saved.longitude, 2)
+            );
+            if (dist < 0.001 && dist < minDistance) {
+              minDistance = dist;
+              foundLocation = saved.name;
+            }
+          }
+          setLocationName(foundLocation);
+        }
+      } catch (e) {
+        console.log("Location error", e);
+      }
+
+      // 3. Sound (Brief sampling)
+      if (isRecordingRef.current) return; // Skip if already recording
+
+      try {
+        const { status } = await Audio.requestPermissionsAsync();
+        if (status === "granted") {
+          isRecordingRef.current = true;
+
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: true,
+            playsInSilentModeIOS: true,
+          });
+
+          // Ensure previous recording is unloaded
+          if (recordingRef.current) {
+            try {
+              await recordingRef.current.stopAndUnloadAsync();
+            } catch (e) {
+              // Ignore unload errors
+            }
+            recordingRef.current = null;
+          }
+
+          const recording = new Audio.Recording();
+          recordingRef.current = recording;
+
+          await recording.prepareToRecordAsync(
+            Audio.RecordingOptionsPresets.LOW_QUALITY
+          );
+          await recording.startAsync();
+
+          // Sample for a short time
+          setTimeout(async () => {
+            try {
+              if (recordingRef.current) {
+                const status = await recordingRef.current.getStatusAsync();
+                if (status.isRecording) {
+                  const metering = status.metering || -160;
+                  setSoundLevel(metering);
+                }
+                await recordingRef.current.stopAndUnloadAsync();
+              }
+            } catch (e) {
+              console.log("Audio stop error", e);
+            } finally {
+              recordingRef.current = null;
+              isRecordingRef.current = false;
+            }
+          }, 500);
+        }
+      } catch (e) {
+        console.log("Audio start error", e);
+        isRecordingRef.current = false;
+        if (recordingRef.current) {
+          try {
+            await recordingRef.current.stopAndUnloadAsync();
+          } catch (err) {}
+          recordingRef.current = null;
+        }
+      }
+    };
+
+    // Run check every 10 seconds
+    const interval = setInterval(checkEnvironment, 10000);
+    checkEnvironment(); // Initial check
+
+    return () => {
+      clearInterval(interval);
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync();
+      }
+    };
+  }, []);
+
+  // Derive Environment Label
+  useEffect(() => {
+    let env = "Indoors";
+
+    if (activity === "Running") env = "Exercise";
+    else if (locationName !== "Unknown")
+      env = locationName; // e.g. "Gym", "Home"
+    else if (soundLevel > -10) env = "Noisy"; // Threshold for loud environment
+    else if (timeOfDay === "Evening" || timeOfDay === "Night") env = "Relaxing";
+
+    setEnvironment(env);
+  }, [activity, locationName, soundLevel, timeOfDay]);
+
+  // Sensor Logic
+  useEffect(() => {
+    Accelerometer.setUpdateInterval(500);
+    Gyroscope.setUpdateInterval(500);
+
+    let accelData = { x: 0, y: 0, z: 0 };
+    let gyroData = { x: 0, y: 0, z: 0 };
+
+    const handleUpdate = () => {
+      const accelMag = Math.sqrt(
+        accelData.x ** 2 + accelData.y ** 2 + accelData.z ** 2
+      );
+      const gyroMag = Math.sqrt(
+        gyroData.x ** 2 + gyroData.y ** 2 + gyroData.z ** 2
+      );
+
+      // Combined threshold logic
+      if (accelMag > 1.6 || gyroMag > 3.0) {
+        setActivity("Running");
+      } else if (accelMag > 1.1 || gyroMag > 0.5) {
+        setActivity("Walking");
+      } else {
+        setActivity("Stationary");
+      }
+    };
+
+    const accelSub = Accelerometer.addListener((data) => {
+      accelData = data;
+      handleUpdate();
+    });
+
+    const gyroSub = Gyroscope.addListener((data) => {
+      gyroData = data;
+      handleUpdate();
+    });
+
+    return () => {
+      accelSub && accelSub.remove();
+      gyroSub && gyroSub.remove();
+    };
+  }, []);
 
   // Theme State
   const [themeMode, setThemeMode] = useState<"auto" | "light" | "dark">("auto");
   const [activeTheme, setActiveTheme] = useState<"light" | "dark">("dark");
-
-  const lastUpdateRef = useRef<number>(0);
-  const accelHistory = useRef<number[]>([]);
 
   // Animation Values
   const pulse = useSharedValue(1);
@@ -107,7 +266,8 @@ export default function HomeScreen() {
   // Theme Logic
   useEffect(() => {
     if (themeMode === "auto") {
-      if (sensorData.light > 100) {
+      const hour = new Date().getHours();
+      if (hour >= 6 && hour < 18) {
         setActiveTheme("light");
       } else {
         setActiveTheme("dark");
@@ -115,7 +275,7 @@ export default function HomeScreen() {
     } else {
       setActiveTheme(themeMode);
     }
-  }, [sensorData.light, themeMode]);
+  }, [themeMode]);
 
   const toggleTheme = () => {
     if (themeMode === "auto") setThemeMode("light");
@@ -141,147 +301,6 @@ export default function HomeScreen() {
       loadLocations();
     }, [])
   );
-
-  useEffect(() => {
-    let accelSubscription: any;
-    let gyroSubscription: any;
-    let lightSubscription: any;
-
-    const startSensors = async () => {
-      Accelerometer.setUpdateInterval(100);
-      accelSubscription = Accelerometer.addListener((data) => {
-        const magnitude = Math.sqrt(data.x ** 2 + data.y ** 2 + data.z ** 2);
-        accelHistory.current.push(magnitude);
-        if (accelHistory.current.length > 20) accelHistory.current.shift();
-        setSensorData((prev) => ({ ...prev, accelerometer: data }));
-      });
-
-      Gyroscope.setUpdateInterval(500);
-      gyroSubscription = Gyroscope.addListener((data) => {
-        setSensorData((prev) => ({ ...prev, gyroscope: data }));
-      });
-
-      if (await LightSensor.isAvailableAsync()) {
-        LightSensor.setUpdateInterval(1000);
-        lightSubscription = LightSensor.addListener((data) => {
-          setSensorData((prev) => ({ ...prev, light: data.illuminance }));
-        });
-      }
-
-      let { status } = await Location.requestForegroundPermissionsAsync();
-    };
-
-    startSensors();
-
-    const intervalId = setInterval(async () => {
-      await updateContext();
-    }, 10000);
-
-    updateContext();
-
-    return () => {
-      accelSubscription && accelSubscription.remove();
-      gyroSubscription && gyroSubscription.remove();
-      lightSubscription && lightSubscription.remove();
-      clearInterval(intervalId);
-    };
-  }, [savedLocations]);
-
-  const updateContext = async () => {
-    let activity = "Stationary";
-    if (accelHistory.current.length > 0) {
-      const avg =
-        accelHistory.current.reduce((a, b) => a + b, 0) /
-        accelHistory.current.length;
-      const variance =
-        accelHistory.current.reduce((a, b) => a + (b - avg) ** 2, 0) /
-        accelHistory.current.length;
-      if (variance > 0.05) activity = "Running";
-      else if (variance > 0.005) activity = "Walking";
-      else activity = "Stationary";
-    }
-
-    const hour = new Date().getHours();
-    let timeOfDay = "Night";
-    if (hour >= 5 && hour < 12) timeOfDay = "Morning";
-    else if (hour >= 12 && hour < 17) timeOfDay = "Afternoon";
-    else if (hour >= 17 && hour < 21) timeOfDay = "Evening";
-
-    let locationName = "Not Specificed";
-    let currentLocation = null;
-    try {
-      const { status } = await Location.getForegroundPermissionsAsync();
-      if (status === "granted") {
-        currentLocation = await Location.getCurrentPositionAsync({});
-        let foundSavedLocation = false;
-        for (const loc of savedLocations) {
-          const dist = getDistanceFromLatLonInKm(
-            currentLocation.coords.latitude,
-            currentLocation.coords.longitude,
-            loc.latitude,
-            loc.longitude
-          );
-          if (dist < 0.1) {
-            locationName = loc.name;
-            foundSavedLocation = true;
-            break;
-          }
-        }
-
-        if (!foundSavedLocation) {
-          try {
-            const reverseGeocode = await Location.reverseGeocodeAsync({
-              latitude: currentLocation.coords.latitude,
-              longitude: currentLocation.coords.longitude,
-            });
-            if (reverseGeocode.length > 0) {
-              const addr = reverseGeocode[0];
-              const place = addr.city || addr.street || "Unknown Place";
-              locationName = place;
-            } else {
-              locationName = "Unknown Area";
-            }
-          } catch (e) {
-            locationName = "Unknown Area";
-          }
-        }
-      }
-    } catch (e) {
-      console.log("Location error", e);
-    }
-
-    let environment = "Indoors";
-    if (sensorData.light > 1000) environment = "Outdoors";
-    else if (sensorData.light < 50) environment = "Dark";
-    else environment = "Indoors";
-
-    const newContext = { activity, timeOfDay, locationName, environment };
-    setContext(newContext);
-  };
-
-  function getDistanceFromLatLonInKm(
-    lat1: number,
-    lon1: number,
-    lat2: number,
-    lon2: number
-  ) {
-    var R = 6371;
-    var dLat = deg2rad(lat2 - lat1);
-    var dLon = deg2rad(lon2 - lon1);
-    var a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(deg2rad(lat1)) *
-        Math.cos(deg2rad(lat2)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    var d = R * c;
-    return d;
-  }
-
-  function deg2rad(deg: number) {
-    return deg * (Math.PI / 180);
-  }
 
   return (
     <View style={styles.container}>
@@ -366,7 +385,7 @@ export default function HomeScreen() {
                 <Text
                   style={[styles.contextValue, { color: currentTheme.text }]}
                 >
-                  {context.activity}
+                  {activity}
                 </Text>
               </View>
             </Animated.View>
@@ -408,7 +427,7 @@ export default function HomeScreen() {
                     { color: currentTheme.text },
                   ]}
                 >
-                  {context.timeOfDay}
+                  {timeOfDay}
                 </Text>
               </View>
             </BlurView>
@@ -449,7 +468,7 @@ export default function HomeScreen() {
                   ]}
                   numberOfLines={1}
                 >
-                  {context.locationName}
+                  {locationName}
                 </Text>
               </View>
             </BlurView>
@@ -488,12 +507,12 @@ export default function HomeScreen() {
                 <Text
                   style={[styles.contextValue, { color: currentTheme.text }]}
                 >
-                  {context.environment}
+                  {environment}
                 </Text>
                 <Text
                   style={[styles.debugText, { color: currentTheme.subText }]}
                 >
-                  {Math.round(sensorData.light)} lux
+                  {soundLevel.toFixed(1)} dB
                 </Text>
               </View>
             </View>
@@ -538,7 +557,7 @@ export default function HomeScreen() {
 
         <Animated.View entering={FadeInUp.delay(700).duration(600)}>
           <Text style={[styles.footerText, { color: currentTheme.subText }]}>
-            Context updated every 10s
+            Context updated every 10m
           </Text>
         </Animated.View>
       </View>
