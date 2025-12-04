@@ -1,3 +1,4 @@
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
 import { useSignUp } from "@clerk/clerk-expo";
 import { LinearGradient } from "expo-linear-gradient";
@@ -22,6 +23,7 @@ export default function SignUpScreen() {
 
   const [emailAddress, setEmailAddress] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [isPasswordVisible, setIsPasswordVisible] = React.useState(false);
   const [pendingVerification, setPendingVerification] = React.useState(false);
   const [code, setCode] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -30,11 +32,17 @@ export default function SignUpScreen() {
     if (!isLoaded) {
       return;
     }
+
+    if (!emailAddress || !password) {
+      alert("Please enter both email and password.");
+      return;
+    }
+
     setLoading(true);
 
     try {
       await signUp.create({
-        emailAddress,
+        emailAddress: emailAddress.trim(),
         password,
       });
 
@@ -102,20 +110,31 @@ export default function SignUpScreen() {
                     value={emailAddress}
                     placeholder="Email..."
                     placeholderTextColor="#666"
+                    keyboardType="email-address"
                     onChangeText={setEmailAddress}
                     style={styles.input}
                   />
                 </View>
 
-                <View style={styles.inputContainer}>
+                <View style={[styles.inputContainer, styles.passwordContainer]}>
                   <TextInput
                     value={password}
                     placeholder="Password..."
                     placeholderTextColor="#666"
-                    secureTextEntry={true}
+                    secureTextEntry={!isPasswordVisible}
                     onChangeText={setPassword}
-                    style={styles.input}
+                    style={[styles.input, { flex: 1 }]}
                   />
+                  <TouchableOpacity
+                    onPress={() => setIsPasswordVisible(!isPasswordVisible)}
+                    style={styles.eyeIcon}
+                  >
+                    <IconSymbol
+                      name={isPasswordVisible ? "eye.slash.fill" : "eye.fill"}
+                      size={20}
+                      color={Palette.lightGray}
+                    />
+                  </TouchableOpacity>
                 </View>
 
                 <TouchableOpacity
@@ -221,6 +240,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
+  },
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 16,
+  },
+  eyeIcon: {
+    padding: 4,
   },
   input: {
     padding: 16,

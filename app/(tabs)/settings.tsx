@@ -1,10 +1,13 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
+import { useAuth } from "@/context/AuthContext";
 import { MusicService, SavedLocation } from "@/services/backend";
 import { useUser } from "@clerk/clerk-expo";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
+import * as SecureStore from "expo-secure-store";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState } from "react";
 import {
@@ -13,6 +16,7 @@ import {
   FlatList,
   Keyboard,
   Modal,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -24,6 +28,7 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 
 export default function SettingsScreen() {
   const { user } = useUser();
+  const { signOut } = useAuth();
   const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [locationName, setLocationName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -390,6 +395,32 @@ export default function SettingsScreen() {
         />
       </Animated.View>
 
+      <TouchableOpacity
+        style={styles.signOutButton}
+        onPress={() => {
+          Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Sign Out",
+              style: "destructive",
+              onPress: async () => {
+                try {
+                  await AsyncStorage.removeItem("userLocations");
+                  await signOut();
+                  if (Platform.OS !== "web") {
+                    await SecureStore.deleteItemAsync("__clerk_client_jwt");
+                  }
+                } catch (e) {
+                  console.error("Sign out error", e);
+                }
+              },
+            },
+          ]);
+        }}
+      >
+        <Text style={styles.signOutText}>Sign Out</Text>
+      </TouchableOpacity>
+
       {/* Map Modal */}
       <Modal visible={mapVisible} animationType="slide">
         <View style={styles.mapContainer}>
@@ -635,5 +666,20 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     color: Palette.black,
     fontWeight: "bold",
+  },
+  signOutButton: {
+    marginTop: 10,
+    padding: 15,
+    backgroundColor: "rgba(255, 59, 48, 0.1)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.red,
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  signOutText: {
+    color: Palette.red,
+    fontWeight: "bold",
+    fontSize: 16,
   },
 });

@@ -1,3 +1,4 @@
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
 import { useSignIn } from "@clerk/clerk-expo";
 import { LinearGradient } from "expo-linear-gradient";
@@ -19,17 +20,35 @@ export default function SignInScreen() {
 
   const [emailAddress, setEmailAddress] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [isPasswordVisible, setIsPasswordVisible] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
 
   const onSignInPress = React.useCallback(async () => {
     if (!isLoaded) {
       return;
     }
+
+    if (!emailAddress || !password) {
+      alert("Please enter both email and password.");
+      return;
+    }
+
     setLoading(true);
+
+    const identifier = emailAddress.trim();
+    console.log("Attempting sign in with identifier:", identifier);
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(identifier)) {
+      alert("Please enter a valid email address.");
+      setLoading(false);
+      return;
+    }
 
     try {
       const completeSignIn = await signIn.create({
-        identifier: emailAddress,
+        identifier,
         password,
       });
 
@@ -60,23 +79,36 @@ export default function SignInScreen() {
           <View style={styles.inputContainer}>
             <TextInput
               autoCapitalize="none"
+              autoComplete="email"
+              autoCorrect={false}
               value={emailAddress}
               placeholder="Email..."
               placeholderTextColor="#666"
-              onChangeText={(emailAddress) => setEmailAddress(emailAddress)}
+              keyboardType="email-address"
+              onChangeText={setEmailAddress}
               style={styles.input}
             />
           </View>
 
-          <View style={styles.inputContainer}>
+          <View style={[styles.inputContainer, styles.passwordContainer]}>
             <TextInput
               value={password}
               placeholder="Password..."
               placeholderTextColor="#666"
-              secureTextEntry={true}
+              secureTextEntry={!isPasswordVisible}
               onChangeText={(password) => setPassword(password)}
-              style={styles.input}
+              style={[styles.input, { flex: 1 }]}
             />
+            <TouchableOpacity
+              onPress={() => setIsPasswordVisible(!isPasswordVisible)}
+              style={styles.eyeIcon}
+            >
+              <IconSymbol
+                name={isPasswordVisible ? "eye.slash.fill" : "eye.fill"}
+                size={20}
+                color={Palette.lightGray}
+              />
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity
@@ -138,6 +170,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
+  },
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 16,
+  },
+  eyeIcon: {
+    padding: 4,
   },
   input: {
     padding: 16,

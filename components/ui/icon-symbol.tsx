@@ -38,6 +38,8 @@ const MAPPING = {
   "arrow.right": "arrow-forward",
   "clock.fill": "schedule",
   "cloud.upload.fill": "cloud-upload",
+  "eye.fill": "visibility",
+  "eye.slash.fill": "visibility-off",
 } as IconMapping;
 
 /**
