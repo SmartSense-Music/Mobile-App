@@ -1,6 +1,5 @@
-// export const BACKEND_URL = "https://smart-sense-music-backend.onrender.com";
-export const BACKEND_URL = "http://localhost:5000";
-// export const BACKEND_URL = "http://192.168.1.42:5000";
+export const BACKEND_URL = "https://smart-sense-music-backend.onrender.com";
+// export const BACKEND_URL = "http://localhost:5000";
 
 export const CLOUDINARY_CONFIG = {
   cloudName: "dw3kp9uqn",

@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth } from "@/context/AuthContext";
 
 const TIME_OPTIONS = ["Morning", "Afternoon", "Evening", "Night"];
 const ENV_OPTIONS = [
@@ -41,6 +42,7 @@ const ENV_OPTIONS = [
 
 export default function UploadScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [selectedTimes, setSelectedTimes] = useState<string[]>([
@@ -103,13 +105,17 @@ export default function UploadScreen() {
 
     setIsUploading(true);
     try {
-      const success = await MusicService.uploadMusic(file.uri, {
-        title,
-        artist,
-        timeOfDay: selectedTimes,
-        environment: selectedEnvs,
-        location: "Unknown", // TODO: Get real location
-      });
+      const success = await MusicService.uploadMusic(
+        file.uri,
+        {
+          title,
+          artist,
+          timeOfDay: selectedTimes,
+          environment: selectedEnvs,
+          location: "Unknown", // TODO: Get real location
+        },
+        user ? user.id : ""
+      );
 
       if (success) {
         Alert.alert("Success", "Music uploaded successfully!");

@@ -30,7 +30,11 @@ let uploadedSongs: Song[] = [];
 let savedLocations: SavedLocation[] = [];
 
 export const MusicService = {
-  async uploadMusic(fileUri: string, metadata: SongMetadata): Promise<boolean> {
+  async uploadMusic(
+    fileUri: string,
+    metadata: SongMetadata,
+    userId: String
+  ): Promise<boolean> {
     try {
       // 1. Upload to Cloudinary
       const formData = new FormData();
@@ -85,9 +89,10 @@ export const MusicService = {
           artist: metadata.artist,
           url: audioUrl,
           duration: duration,
-          time_of_day: metadata.timeOfDay, // Mapping to snake_case if backend expects it
+          timeOfDay: metadata.timeOfDay, // Mapping to snake_case if backend expects it
           environment: metadata.environment,
           location: metadata.location || "Unknown",
+          userId: userId,
         }),
       });
 
