@@ -73,7 +73,6 @@ export default function SignUpScreen() {
       });
 
       if (completeSignUp.status === "complete") {
-        console.log(completeSignUp.createdUserId);
         // Add user to database backend
         try {
           const createUserResponse = await fetch(

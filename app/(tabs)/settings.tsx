@@ -673,7 +673,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.red,
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 80,
   },
   signOutText: {
     color: Palette.red,
