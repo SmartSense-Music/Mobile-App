@@ -1,7 +1,7 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
-import { MusicService, SavedLocation } from "@/services/backend";
+import { LocationService, SavedLocation } from "@/services/backend";
 import { useUser } from "@clerk/clerk-expo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
@@ -62,7 +62,7 @@ export default function SettingsScreen() {
     if (!user) return;
     try {
       setLoading(true);
-      const backendLocations = await MusicService.getLocations(user.id);
+      const backendLocations = await LocationService.getLocations(user.id);
       setLocations(backendLocations);
     } catch (error) {
       console.error("Failed to load locations", error);
@@ -195,12 +195,18 @@ export default function SettingsScreen() {
 
     setLoading(true);
     try {
-      const newLoc = await MusicService.saveLocation(user?.id || "guest", {
-        name: locationName,
-        latitude: selectedLocation.lat,
-        longitude: selectedLocation.lng,
-        address: selectedLocation.address,
-      });
+      if (!user) {
+        Alert.alert("Error", "You must be logged in to save locations.");
+        setLoading(false);
+        return;
+      }
+
+      const newLoc = await LocationService.saveLocation(
+        user.id,
+        locationName,
+        selectedLocation.lat,
+        selectedLocation.lng
+      );
 
       if (newLoc) {
         setLocations((prev) => [...prev, newLoc]);
@@ -231,13 +237,19 @@ export default function SettingsScreen() {
           style: "destructive",
           onPress: async () => {
             setLoading(true);
-            const success = await MusicService.deleteLocation(id);
-            if (success) {
-              setLocations((prev) => prev.filter((loc) => loc.id !== id));
-            } else {
-              Alert.alert("Error", "Failed to delete location.");
+            try {
+              const success = await LocationService.deleteLocation(id);
+              if (success) {
+                setLocations((prev) => prev.filter((loc) => loc.id !== id));
+                Alert.alert("Success", "Location deleted successfully");
+              } else {
+                Alert.alert("Error", "Failed to delete location");
+              }
+            } catch (error) {
+              Alert.alert("Error", "An error occurred while deleting");
+            } finally {
+              setLoading(false);
             }
-            setLoading(false);
           },
         },
       ]

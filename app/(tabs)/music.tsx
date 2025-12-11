@@ -1,7 +1,7 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
-import { MusicService, Song } from "@/services/backend";
+import { InteractionService, MusicService, Song } from "@/services/backend";
 import { Audio } from "expo-av";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -22,12 +22,19 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 
 const { width } = Dimensions.get("window");
 
+// Utility to ensure parameters always come in correct format
+function parseParam(param: any, fallback: string) {
+  if (!param) return fallback;
+  if (Array.isArray(param)) return param[0] || fallback;
+  return param;
+}
+
 export default function MusicScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const params = useLocalSearchParams();
 
-  // Static context values since SmartContext was removed
+  // Default time logic
   const defaultTimeOfDay =
     new Date().getHours() < 12
       ? "Morning"
@@ -35,15 +42,19 @@ export default function MusicScreen() {
       ? "Afternoon"
       : "Evening";
 
-  const timeOfDay = (params.timeOfDay as string) || defaultTimeOfDay;
-  const locationName = (params.locationName as string) || "Unknown";
-  const environment = (params.environment as string) || "Relax";
+  // FIX: Normalize all params coming from Home tab
+  const timeOfDay = parseParam(params.timeOfDay, defaultTimeOfDay);
+  const locationName = parseParam(params.locationName, "Unknown");
+  const environment = parseParam(params.environment, "");
+  const userAction = parseParam(params.userAction, "Stationary");
 
   const [playlist, setPlaylist] = useState<Song[]>([]);
   const [currentTrack, setCurrentTrack] = useState<Song | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  const [isLiked, setIsLiked] = useState(false);
 
   const playlistRef = useRef<Song[]>([]);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -52,15 +63,21 @@ export default function MusicScreen() {
     playlistRef.current = playlist;
   }, [playlist]);
 
-  // Derived context for music selection
+  useEffect(() => {
+    if (currentTrack) {
+      setIsLiked(false);
+    }
+  }, [currentTrack]);
+
+  // Build context object for MusicService
   const musicContext = useMemo(() => {
     return {
       timeOfDay,
       environment,
       location: locationName,
-      displayEnv: environment, // For UI display
+      userAction,
     };
-  }, [timeOfDay, locationName, environment]);
+  }, [timeOfDay, locationName, environment, userAction]);
 
   useEffect(() => {
     loadSongs();
@@ -76,18 +93,22 @@ export default function MusicScreen() {
 
   const loadSongs = async () => {
     setIsLoading(true);
-    console.log("Loading songs for context:", musicContext);
+
+    console.log("Fetching playlist for:", musicContext);
 
     const songs = await MusicService.getSongs({
       timeOfDay: musicContext.timeOfDay,
       environment: musicContext.environment,
       location: musicContext.location,
+      userAction: musicContext.userAction,
     });
 
     setPlaylist(songs);
+
     if (songs.length > 0 && !currentTrack) {
       setCurrentTrack(songs[0]);
     }
+
     setIsLoading(false);
   };
 
@@ -107,27 +128,53 @@ export default function MusicScreen() {
       setCurrentTrack(track);
       setIsPlaying(true);
 
-      newSound.setOnPlaybackStatusUpdate(async (status) => {
-        if (status.isLoaded && status.didJustFinish) {
-          setIsPlaying(false);
+      if (user?.id) {
+        InteractionService.recordInteraction(user.id, track.id, "play");
+      }
 
-          // Auto-play next song
-          const currentPlaylist = playlistRef.current;
-          const currentIndex = currentPlaylist.findIndex(
-            (s) => s.id === track.id
-          );
-          if (
-            currentIndex !== -1 &&
-            currentIndex < currentPlaylist.length - 1
-          ) {
-            const nextSong = currentPlaylist[currentIndex + 1];
-            await playSound(nextSong);
+      newSound.setOnPlaybackStatusUpdate(async (status) => {
+        if (status.isLoaded) {
+          setIsPlaying(status.isPlaying);
+
+          if (status.didJustFinish) {
+            const currentPlaylist = playlistRef.current;
+            const currentIndex = currentPlaylist.findIndex(
+              (s) => s.id === track.id
+            );
+            if (
+              currentIndex !== -1 &&
+              currentIndex < currentPlaylist.length - 1
+            ) {
+              const nextSong = currentPlaylist[currentIndex + 1];
+              await playSound(nextSong);
+            }
           }
         }
       });
     } catch (error) {
       console.error("Error playing sound:", error);
     }
+  };
+
+  const handleSkip = async () => {
+    if (!currentTrack) return;
+
+    if (user?.id) {
+      InteractionService.recordInteraction(user.id, currentTrack.id, "skip");
+    }
+
+    const currentIndex = playlist.findIndex((s) => s.id === currentTrack.id);
+    if (currentIndex !== -1 && currentIndex < playlist.length - 1) {
+      await playSound(playlist[currentIndex + 1]);
+    }
+  };
+
+  const handleLike = async () => {
+    if (!currentTrack || !user?.id) return;
+
+    setIsLiked(!isLiked);
+
+    InteractionService.recordInteraction(user.id, currentTrack.id, "like");
   };
 
   const togglePlayback = async () => {
@@ -137,12 +184,14 @@ export default function MusicScreen() {
     }
 
     if (soundRef.current) {
-      if (isPlaying) {
-        await soundRef.current.pauseAsync();
-      } else {
-        await soundRef.current.playAsync();
+      const status = await soundRef.current.getStatusAsync();
+      if (status.isLoaded) {
+        if (status.isPlaying) {
+          await soundRef.current.pauseAsync();
+        } else {
+          await soundRef.current.playAsync();
+        }
       }
-      setIsPlaying(!isPlaying);
     }
   };
 
@@ -159,7 +208,7 @@ export default function MusicScreen() {
         <View style={styles.contextBadge}>
           <IconSymbol name="sparkles" size={12} color={Palette.gold} />
           <Text style={styles.contextText}>
-            {musicContext.timeOfDay} • {musicContext.displayEnv}
+            {musicContext.timeOfDay} • {musicContext.environment}
           </Text>
         </View>
       </View>
@@ -206,6 +255,13 @@ export default function MusicScreen() {
             </View>
 
             <View style={styles.controls}>
+              <TouchableOpacity onPress={handleLike}>
+                <IconSymbol
+                  name={isLiked ? "heart.fill" : "heart"}
+                  size={24}
+                  color={isLiked ? Palette.crimson : Palette.white}
+                />
+              </TouchableOpacity>
               <TouchableOpacity>
                 <IconSymbol
                   name="backward.fill"
@@ -228,7 +284,7 @@ export default function MusicScreen() {
                   />
                 </LinearGradient>
               </TouchableOpacity>
-              <TouchableOpacity>
+              <TouchableOpacity onPress={handleSkip}>
                 <IconSymbol
                   name="forward.fill"
                   size={30}
@@ -244,7 +300,7 @@ export default function MusicScreen() {
           >
             <BlurView intensity={30} tint="dark" style={styles.blurList}>
               <Text style={styles.sectionTitle}>
-                CURATED FOR {musicContext.displayEnv.toUpperCase() || "YOU"}
+                CURATED FOR {musicContext.environment.toUpperCase() || "YOU"}
               </Text>
               <FlatList
                 data={playlist}
@@ -273,6 +329,7 @@ export default function MusicScreen() {
                           }
                         />
                       </View>
+
                       <View style={{ flex: 1 }}>
                         <Text
                           style={[
@@ -288,6 +345,7 @@ export default function MusicScreen() {
                           {item.artist}
                         </Text>
                       </View>
+
                       <Text style={styles.itemDuration}>
                         {Math.floor(item.duration / 60)}:
                         {String(item.duration % 60).padStart(2, "0")}

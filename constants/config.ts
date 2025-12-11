@@ -1,4 +1,5 @@
-export const BACKEND_URL = "https://smart-sense-music-backend.onrender.com";
+export const BACKEND_URL = "http://192.168.8.125:3000";
+//"https://smart-sense-music-backend.onrender.com";
 
 export const CLOUDINARY_CONFIG = {
   cloudName: "dw3kp9uqn",
@@ -7,9 +8,11 @@ export const CLOUDINARY_CONFIG = {
 };
 
 export const API_ENDPOINTS = {
-  GET_SONGS: `${BACKEND_URL}/songs`,
-  GET_RECOMMENDATIONS: `${BACKEND_URL}/recommendations`,
-  UPLOAD_METADATA: `${BACKEND_URL}/api/playlists`,
-  GET_PLAYLISTS: `${BACKEND_URL}/api/playlists`,
-  GEOLOCATIONS: `${BACKEND_URL}/api/geolocations`,
+  PLAYLISTS: `${BACKEND_URL}/api/musics`,
+  GEOLOCATIONS: `${BACKEND_URL}/api/locations`,
+  USERS: `${BACKEND_URL}/api/users`,
+  INTERACTIONS: `${BACKEND_URL}/api/interactions`,
+  TIMEOFTHEDAY: `${BACKEND_URL}/api/time-of-day`,
+  ENVIRONMENTS: `${BACKEND_URL}/api/environments`,
+  USERACTIONS: `${BACKEND_URL}/api/user-actions`,
 };
