@@ -19,7 +19,6 @@ import {
   View,
 } from "react-native";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
-
 const { width } = Dimensions.get("window");
 
 // Utility to ensure parameters always come in correct format
@@ -30,7 +29,6 @@ function parseParam(param: any, fallback: string) {
 }
 
 export default function MusicScreen() {
-  const router = useRouter();
   const { user } = useAuth();
   const params = useLocalSearchParams();
 
@@ -100,7 +98,8 @@ export default function MusicScreen() {
       timeOfDay: musicContext.timeOfDay,
       environment: musicContext.environment,
       location: musicContext.location,
-      userAction: musicContext.userAction,
+      action: musicContext.userAction,
+      userId: user?.id,
     });
 
     setPlaylist(songs);
@@ -127,10 +126,6 @@ export default function MusicScreen() {
       setSound(newSound);
       setCurrentTrack(track);
       setIsPlaying(true);
-
-      if (user?.id) {
-        InteractionService.recordInteraction(user.id, track.id, "play");
-      }
 
       newSound.setOnPlaybackStatusUpdate(async (status) => {
         if (status.isLoaded) {
@@ -159,10 +154,6 @@ export default function MusicScreen() {
   const handleSkip = async () => {
     if (!currentTrack) return;
 
-    if (user?.id) {
-      InteractionService.recordInteraction(user.id, currentTrack.id, "skip");
-    }
-
     const currentIndex = playlist.findIndex((s) => s.id === currentTrack.id);
     if (currentIndex !== -1 && currentIndex < playlist.length - 1) {
       await playSound(playlist[currentIndex + 1]);
@@ -174,7 +165,7 @@ export default function MusicScreen() {
 
     setIsLiked(!isLiked);
 
-    InteractionService.recordInteraction(user.id, currentTrack.id, "like");
+    InteractionService.recordInteraction(user.id, currentTrack.id);
   };
 
   const togglePlayback = async () => {
