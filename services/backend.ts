@@ -141,7 +141,18 @@ export const MusicService = {
       if (!response.ok) throw new Error("Failed to fetch songs");
 
       const data = await response.json();
-      return data.map((item: any) => ({
+
+      // Handle different response formats
+      const songsList = Array.isArray(data)
+        ? data
+        : data.songs || data.data || [];
+
+      if (!Array.isArray(songsList)) {
+        console.error("Unexpected API response format:", data);
+        return [];
+      }
+
+      return songsList.map((item: any) => ({
         id: item.id.toString(),
         title: item.title,
         artist: item.artist,
