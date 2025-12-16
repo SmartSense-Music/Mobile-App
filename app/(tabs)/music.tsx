@@ -81,6 +81,39 @@ export default function MusicScreen() {
     loadSongs();
   }, [musicContext]);
 
+  // Pause music automatically when arriving at important places
+  useEffect(() => {
+    const importantKeywords = [
+      "school",
+      "institute",
+      "police",
+      "court",
+      "hospital",
+      "college",
+      "university",
+      "clinic",
+    ];
+
+    if (!locationName || locationName === "Unknown") return;
+
+    const lowerName = String(locationName).toLowerCase();
+    const matched = importantKeywords.some((k) => lowerName.includes(k));
+
+    if (matched && soundRef.current) {
+      (async () => {
+        try {
+          const status = await soundRef.current?.getStatusAsync();
+          if (status?.isLoaded && status?.isPlaying) {
+            await soundRef.current?.pauseAsync();
+            setIsPlaying(false);
+          }
+        } catch (e) {
+          console.warn("Failed to pause sound on important location:", e);
+        }
+      })();
+    }
+  }, [locationName]);
+
   useEffect(() => {
     return () => {
       if (soundRef.current) {

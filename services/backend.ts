@@ -119,7 +119,8 @@ export const MusicService = {
     userId?: string;
   }): Promise<Song[]> {
     try {
-      const response = await fetch(`${API_ENDPOINTS.PLAYLISTS}/recommend`, {
+      const url = `${API_ENDPOINTS.PLAYLISTS}/recommend`;
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -131,8 +132,10 @@ export const MusicService = {
           user: context?.userId,
         }),
       });
-
-      if (!response.ok) throw new Error("Failed to fetch songs");
+      if (!response.ok) {
+        console.error("getSongs failed:", { url, status: response.status });
+        throw new Error(`Failed to fetch songs (status ${response.status})`);
+      }
 
       const data = await response.json();
 
@@ -198,8 +201,14 @@ export const LocationService = {
 
   async getLocations(userId: string): Promise<SavedLocation[]> {
     try {
-      const response = await fetch(`${API_ENDPOINTS.GEOLOCATIONS}/${userId}`);
-      if (!response.ok) throw new Error("Failed to fetch locations");
+      const url = `${API_ENDPOINTS.GEOLOCATIONS}/${userId}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.error("getLocations failed:", { url, status: response.status });
+        throw new Error(
+          `Failed to fetch locations (status ${response.status})`
+        );
+      }
       const data = await response.json();
       return data.map((item: any) => ({
         id: item.id.toString(),
