@@ -134,6 +134,7 @@ export const MusicService = {
           timeOfDay: context?.timeOfDay || null,
           location: context?.location || null,
           action: context?.action || null,
+          limit: 20,
         }),
       });
 
