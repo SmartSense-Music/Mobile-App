@@ -116,16 +116,9 @@ export const MusicService = {
     timeOfDay?: string;
     location?: string;
     action?: string;
+    userId?: string;
   }): Promise<Song[]> {
     try {
-      const queryParams = new URLSearchParams();
-      if (context?.environment)
-        queryParams.append("environment", context.environment);
-      if (context?.timeOfDay)
-        queryParams.append("timeOfDay", context.timeOfDay);
-      if (context?.location) queryParams.append("location", context.location);
-      if (context?.action) queryParams.append("action", context.action);
-
       const response = await fetch(`${API_ENDPOINTS.PLAYLISTS}/recommend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,6 +128,7 @@ export const MusicService = {
           location: context?.location || null,
           action: context?.action || null,
           limit: 20,
+          user: context?.userId,
         }),
       });
 
@@ -236,22 +230,39 @@ export const LocationService = {
 export const InteractionService = {
   async recordInteraction(
     userId: string,
-    playlistId: string,
-    action: "play" | "like" | "skip"
-  ) {
+    playlistId: string
+  ): Promise<boolean | null> {
     try {
-      await fetch(API_ENDPOINTS.INTERACTIONS, {
+      const resp = await fetch(API_ENDPOINTS.INTERACTIONS, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_id: userId,
           playlist_id: playlistId,
-          action,
         }),
       });
+
+      if (!resp.ok) {
+        console.error("Failed to record interaction, status:", resp.status);
+        return null;
+      }
+
+      const data = await resp.json();
+      // For like toggles the backend returns { liked: true|false }
+      if (typeof data.liked === "boolean") return data.liked;
+      // For non-like actions backend returns message; treat as no-op
+      return null;
     } catch (error) {
       console.error("Error recording interaction:", error);
+      return null;
     }
+  },
+
+  async toggleLike(
+    userId: string,
+    playlistId: string
+  ): Promise<boolean | null> {
+    return await this.recordInteraction(userId, playlistId);
   },
 };
 
