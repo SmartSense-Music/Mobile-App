@@ -2,7 +2,6 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { LocationService, SavedLocation } from "@/services/backend";
-import { useUser } from "@clerk/clerk-expo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -27,8 +26,7 @@ import MapView, { Marker, Region } from "react-native-maps";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 
 export default function SettingsScreen() {
-  const { user } = useUser();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [locationName, setLocationName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -687,7 +685,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.red,
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 80,
   },
   signOutText: {
     color: Palette.red,

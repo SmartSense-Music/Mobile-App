@@ -17,6 +17,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { BACKEND_URL } from "@/constants/config";
+import { useAuth } from "@/context/AuthContext";
 
 export default function SignUpScreen() {
   const { isLoaded, signUp, setActive } = useSignUp();
@@ -28,6 +30,8 @@ export default function SignUpScreen() {
   const [pendingVerification, setPendingVerification] = React.useState(false);
   const [code, setCode] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+
+  const { user } = useAuth();
 
   const onSignUpPress = async () => {
     if (!isLoaded) {
@@ -70,6 +74,28 @@ export default function SignUpScreen() {
       });
 
       if (completeSignUp.status === "complete") {
+        // Add user to database backend
+        try {
+          const createUserResponse = await fetch(
+            `${BACKEND_URL}/api/users/create`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userId: completeSignUp.createdUserId,
+                emailAddress,
+              }),
+            }
+          );
+          if (createUserResponse.ok) {
+            console.log("User added to database");
+          } else {
+            console.warn("Failed to add user to database");
+          }
+        } catch (dbErr) {
+          console.warn("Database creation error:", dbErr);
+        }
+
         await setActive({ session: completeSignUp.createdSessionId });
 
         // Create user in backend

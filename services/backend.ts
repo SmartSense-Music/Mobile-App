@@ -115,7 +115,7 @@ export const MusicService = {
     environment?: string;
     timeOfDay?: string;
     location?: string;
-    userAction?: string;
+    action?: string;
   }): Promise<Song[]> {
     try {
       const queryParams = new URLSearchParams();
@@ -124,12 +124,20 @@ export const MusicService = {
       if (context?.timeOfDay)
         queryParams.append("timeOfDay", context.timeOfDay);
       if (context?.location) queryParams.append("location", context.location);
-      if (context?.userAction)
-        queryParams.append("userAction", context.userAction);
+      if (context?.action) queryParams.append("action", context.action);
 
-      const response = await fetch(
-        `${API_ENDPOINTS.PLAYLISTS}?${queryParams.toString()}`
-      );
+      const response = await fetch(`${API_ENDPOINTS.PLAYLISTS}/recommend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          environment: context?.environment || null,
+          timeOfDay: context?.timeOfDay || null,
+          location: context?.location || null,
+          action: context?.action || null,
+          limit: 20,
+        }),
+      });
+
       if (!response.ok) throw new Error("Failed to fetch songs");
 
       const data = await response.json();
@@ -139,7 +147,7 @@ export const MusicService = {
         artist: item.artist,
         url: item.url,
         duration: item.duration,
-        relevanceScore: item.relevance_score || item.popularity_score,
+        relevanceScore: item.score,
       }));
     } catch (error) {
       console.error("Error fetching songs:", error);

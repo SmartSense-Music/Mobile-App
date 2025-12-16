@@ -31,6 +31,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function UploadScreen() {
   const { user } = useUser();
   const router = useRouter();
+
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
 
