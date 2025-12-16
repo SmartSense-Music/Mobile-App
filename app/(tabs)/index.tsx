@@ -146,7 +146,7 @@ export default function HomeScreen() {
       }
 
       // 3. Sound (Brief sampling)
-      if (isRecordingRef.current) return; // Skip if already recording
+      if (isRecordingRef.current) return; 
 
       try {
         const { status } = await Audio.requestPermissionsAsync();
