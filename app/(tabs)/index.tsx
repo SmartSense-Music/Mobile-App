@@ -1,21 +1,17 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
+import { LocationService, SavedLocation } from "@/services/backend";
+import { useUser } from "@clerk/clerk-expo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Accelerometer, Gyroscope } from "expo-sensors";
+import { Accelerometer, LightSensor } from "expo-sensors";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ColorValue,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Animated, {
   FadeInDown,
   FadeInUp,
@@ -25,13 +21,6 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-
-type SavedLocation = {
-  id: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-};
 
 const THEMES = {
   dark: {
@@ -64,6 +53,7 @@ const THEMES = {
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user } = useUser();
 
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
   const [activity, setActivity] = useState("Stationary");
@@ -71,6 +61,8 @@ export default function HomeScreen() {
   const [timeOfDay, setTimeOfDay] = useState("Day");
   const [locationName, setLocationName] = useState("Unknown");
   const [soundLevel, setSoundLevel] = useState(0);
+  const [gpsAccuracy, setGpsAccuracy] = useState(0);
+  const [lightLevel, setLightLevel] = useState(0);
 
   const isRecordingRef = useRef(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -80,7 +72,13 @@ export default function HomeScreen() {
     const checkEnvironment = async () => {
       // 1. Time
       const hour = new Date().getHours();
-      const time = hour < 12 ? "Morning" : hour < 18 ? "Afternoon" : "Evening";
+      let time = "Night";
+      if (hour >= 5 && hour < 8) time = "Early Morning";
+      else if (hour >= 8 && hour < 12) time = "Morning";
+      else if (hour >= 12 && hour < 16) time = "Afternoon";
+      else if (hour >= 16 && hour < 20) time = "Evening";
+      else if (hour >= 20 && hour < 23) time = "Night";
+
       setTimeOfDay(time);
 
       // 2. Location
@@ -88,13 +86,21 @@ export default function HomeScreen() {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted") {
           const loc = await Location.getCurrentPositionAsync({});
+          if (loc.coords.accuracy) {
+            setGpsAccuracy(loc.coords.accuracy);
+          }
 
           // Check if near any saved location
           let foundLocation = "Unknown";
           let minDistance = Infinity;
 
-          const stored = await AsyncStorage.getItem("userLocations");
-          const locations: SavedLocation[] = stored ? JSON.parse(stored) : [];
+          let locations: SavedLocation[] = [];
+          if (user) {
+            locations = await LocationService.getLocations(user.id);
+          } else {
+            const stored = await AsyncStorage.getItem("userLocations");
+            locations = stored ? JSON.parse(stored) : [];
+          }
 
           for (const saved of locations) {
             const dist = Math.sqrt(
@@ -106,6 +112,33 @@ export default function HomeScreen() {
               foundLocation = saved.name;
             }
           }
+
+          // If no saved location matched, try reverse geocoding
+          if (foundLocation === "Unknown") {
+            try {
+              const reverseGeocoded = await Location.reverseGeocodeAsync({
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+              });
+
+              if (reverseGeocoded.length > 0) {
+                const place = reverseGeocoded[0];
+                // Prioritize specific names (POI/Building) > Street > District > City
+                if (place.name && place.name !== place.street) {
+                  foundLocation = place.name;
+                } else if (place.street) {
+                  foundLocation = place.street;
+                } else if (place.district) {
+                  foundLocation = place.district;
+                } else if (place.city) {
+                  foundLocation = place.city;
+                }
+              }
+            } catch (error) {
+              console.log("Reverse geocoding failed", error);
+            }
+          }
+
           setLocationName(foundLocation);
         }
       } catch (e) {
@@ -187,54 +220,105 @@ export default function HomeScreen() {
   useEffect(() => {
     let env = "Indoors";
 
-    if (activity === "Running") env = "Exercise";
-    else if (locationName !== "Unknown")
-      env = locationName; // e.g. "Gym", "Home"
-    else if (soundLevel > -10) env = "Noisy"; // Threshold for loud environment
-    else if (timeOfDay === "Evening" || timeOfDay === "Night") env = "Relaxing";
+    // 1. Quiet vs Noisy (Sound)
+    if (soundLevel > -20) {
+      env = "Noisy Environment";
+    } else if (soundLevel < -50) {
+      env = "Quiet Environment";
+    }
+    // 2. Indoor vs Outdoor (GPS Accuracy)
+    // High accuracy (< 20m) -> Outdoor (GPS)
+    // Low accuracy (> 40m) -> Indoor (WiFi/Cell)
+    else if (gpsAccuracy < 20 && gpsAccuracy > 0) {
+      env = "Outdoor";
+    } else if (gpsAccuracy > 40) {
+      env = "Indoor";
+    }
+    // 3. Bright vs Dim (Light Sensor)
+    else if (lightLevel > 500) {
+      env = "Bright Environment";
+    } else if (lightLevel < 50 && lightLevel >= 0) {
+      env = "Dim Environment";
+    }
+    // Fallback to Time of Day for Light if sensor not available/neutral
+    else {
+      const hour = new Date().getHours();
+      if (hour >= 6 && hour < 18) {
+        env = "Bright Environment";
+      } else {
+        env = "Dim Environment";
+      }
+    }
 
     setEnvironment(env);
-  }, [activity, locationName, soundLevel, timeOfDay]);
+  }, [activity, locationName, soundLevel, timeOfDay, gpsAccuracy, lightLevel]);
+
+  // Light Sensor Logic
+  useEffect(() => {
+    LightSensor.setUpdateInterval(1000);
+    const subscription = LightSensor.addListener((data) => {
+      setLightLevel(data.illuminance);
+    });
+    return () => subscription && subscription.remove();
+  }, []);
 
   // Sensor Logic
   useEffect(() => {
+    const currentSpeed = { value: 0 };
+    const currentAccel = { value: 0 };
+
+    // 1. Accelerometer
     Accelerometer.setUpdateInterval(500);
-    Gyroscope.setUpdateInterval(500);
+    const accelSub = Accelerometer.addListener(({ x, y, z }) => {
+      const mag = Math.sqrt(x * x + y * y + z * z);
+      currentAccel.value = mag;
+    });
 
-    let accelData = { x: 0, y: 0, z: 0 };
-    let gyroData = { x: 0, y: 0, z: 0 };
-
-    const handleUpdate = () => {
-      const accelMag = Math.sqrt(
-        accelData.x ** 2 + accelData.y ** 2 + accelData.z ** 2
-      );
-      const gyroMag = Math.sqrt(
-        gyroData.x ** 2 + gyroData.y ** 2 + gyroData.z ** 2
-      );
-
-      // Combined threshold logic
-      if (accelMag > 1.6 || gyroMag > 3.0) {
-        setActivity("Running");
-      } else if (accelMag > 1.1 || gyroMag > 0.5) {
-        setActivity("Walking");
-      } else {
-        setActivity("Stationary");
+    // 2. Location (Speed)
+    let locSub: Location.LocationSubscription | null = null;
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === "granted") {
+        locSub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.High },
+          (loc) => {
+            currentSpeed.value = loc.coords.speed || 0;
+          }
+        );
       }
-    };
+    })();
 
-    const accelSub = Accelerometer.addListener((data) => {
-      accelData = data;
-      handleUpdate();
-    });
+    // 3. Decision Loop
+    const interval = setInterval(() => {
+      const speed = currentSpeed.value;
+      const accel = currentAccel.value;
 
-    const gyroSub = Gyroscope.addListener((data) => {
-      gyroData = data;
-      handleUpdate();
-    });
+      let newActivity = "Stationary";
+
+      // Commuting: Speed > 5 m/s (~18 km/h)
+      if (speed > 5) {
+        newActivity = "Commuting";
+      }
+      // Running: High acceleration peaks
+      else if (accel > 1.8) {
+        newActivity = "Running";
+      }
+      // Walking: Moderate pace
+      else if (accel > 1.2) {
+        newActivity = "Walking";
+      }
+      // Stationary
+      else {
+        newActivity = "Stationary";
+      }
+
+      setActivity(newActivity);
+    }, 1000);
 
     return () => {
       accelSub && accelSub.remove();
-      gyroSub && gyroSub.remove();
+      locSub && locSub.remove();
+      clearInterval(interval);
     };
   }, []);
 
@@ -303,7 +387,7 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar style={activeTheme === "dark" ? "light" : "dark"} />
       <LinearGradient
-        colors={currentTheme.background as readonly [ColorValue, ColorValue]}
+        colors={currentTheme.background as [string, string]}
         style={StyleSheet.absoluteFill}
       />
 
@@ -525,12 +609,23 @@ export default function HomeScreen() {
         >
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() =>
+            onPress={() => {
+              console.log("Navigating to Music with:", {
+                environment,
+                timeOfDay,
+                locationName,
+                userAction: activity,
+              });
               router.push({
                 pathname: "/music",
-                params: { environment, timeOfDay, locationName },
-              })
-            }
+                params: {
+                  environment,
+                  timeOfDay,
+                  locationName,
+                  userAction: activity,
+                },
+              });
+            }}
           >
             <LinearGradient
               colors={[Palette.red, Palette.crimson]}

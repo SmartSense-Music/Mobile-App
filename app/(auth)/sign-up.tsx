@@ -1,5 +1,6 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
+import { UserService } from "@/services/backend";
 import { useSignUp } from "@clerk/clerk-expo";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, useRouter } from "expo-router";
@@ -96,6 +97,20 @@ export default function SignUpScreen() {
         }
 
         await setActive({ session: completeSignUp.createdSessionId });
+
+        // Create user in backend
+        if (completeSignUp.createdUserId && emailAddress) {
+          try {
+            const response = await UserService.createUser(
+              completeSignUp.createdUserId,
+              emailAddress
+            );
+            console.log("Backend user created:", response);
+          } catch (e) {
+            console.error("Failed to create user in backend", e);
+          }
+        }
+
         router.replace("/(tabs)");
       } else {
         console.error(JSON.stringify(completeSignUp, null, 2));

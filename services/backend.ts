@@ -4,9 +4,10 @@ export type Song = {
   id: string;
   title: string;
   artist: string;
-  url: string; // Cloudinary URL
+  url: string;
+  duration: number;
+  relevanceScore?: number;
   coverUrl?: string;
-  duration: number; // in seconds
 };
 
 export type SongMetadata = {
@@ -14,27 +15,60 @@ export type SongMetadata = {
   artist: string;
   timeOfDay: string[];
   environment: string[];
+  userActions: string[];
   location?: string;
+  userId: string;
 };
 
 export type SavedLocation = {
+  address?: string;
   id: string;
   name: string;
   latitude: number;
   longitude: number;
-  address?: string;
 };
 
-// In-memory storage for uploaded songs (temporary until backend is connected)
-let uploadedSongs: Song[] = [];
-let savedLocations: SavedLocation[] = [];
+export type TimeOfDay = {
+  id: string;
+  name: string;
+};
+
+export type Environment = {
+  id: string;
+  name: string;
+};
+
+export type UserAction = {
+  id: string;
+  name: string;
+};
+
+export const UserService = {
+  async createUser(userId: string, emailAddress: string) {
+    try {
+      const response = await fetch(`${API_ENDPOINTS.USERS}/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, emailAddress }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.error || `HTTP error! status: ${response.status}`
+        );
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error creating user:", error);
+      throw error;
+    }
+  },
+};
 
 export const MusicService = {
-  async uploadMusic(
-    fileUri: string,
-    metadata: SongMetadata,
-    userId: String
-  ): Promise<boolean> {
+  async uploadMusic(fileUri: string, metadata: SongMetadata): Promise<boolean> {
     try {
       // 1. Upload to Cloudinary
       const formData = new FormData();
@@ -51,66 +85,26 @@ export const MusicService = {
       });
 
       const uploadData = await uploadResponse.json();
-      if (!uploadData.secure_url) {
-        throw new Error("Cloudinary upload failed");
-      }
+      if (!uploadData.secure_url) throw new Error("Cloudinary upload failed");
 
-      const audioUrl = uploadData.secure_url;
-      const duration = uploadData.duration || 0;
-
-      // Log details for verification instead of sending to backend
-      console.log("----- UPLOAD SUCCESS -----");
-      console.log("Title:", metadata.title);
-      console.log("Cloudinary URL:", audioUrl);
-      console.log("Full Payload:", {
-        ...metadata,
-        url: audioUrl,
-        duration,
-      });
-
-      // Add to local list so it appears in the app immediately
-      uploadedSongs.unshift({
-        id: Date.now().toString(),
-        title: metadata.title,
-        artist: metadata.artist,
-        url: audioUrl,
-        duration: duration,
-      });
-
-      // 2. Save Metadata to Backend
-      console.log("Saving metadata to backend:", API_ENDPOINTS.UPLOAD_METADATA);
-      const backendResponse = await fetch(API_ENDPOINTS.UPLOAD_METADATA, {
+      // 2. Save to Backend
+      const response = await fetch(API_ENDPOINTS.PLAYLISTS, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: metadata.title,
           artist: metadata.artist,
-          url: audioUrl,
-          duration: duration,
-          timeOfDay: metadata.timeOfDay, // Mapping to snake_case if backend expects it
+          url: uploadData.secure_url,
+          duration: uploadData.duration || 0,
+          action: metadata.userActions,
           environment: metadata.environment,
-          location: metadata.location || "Unknown",
-          userId: userId,
+          timeOfDay: metadata.timeOfDay,
+          location: metadata.location,
+          userId: metadata.userId,
         }),
       });
 
-      if (!backendResponse.ok) {
-        const errorText = await backendResponse.text();
-        console.error("Backend upload failed:", errorText);
-        // We don't throw here to avoid failing the whole process if just the metadata save fails,
-        // but user might want to know. For now, let's log it.
-        // If strict consistency is needed, we should throw.
-        throw new Error(
-          `Backend upload failed: ${backendResponse.status} ${errorText}`
-        );
-      }
-
-      const backendData = await backendResponse.json();
-      console.log("Backend save success:", backendData);
-
-      return true;
+      return response.ok;
     } catch (error) {
       console.error("Upload failed:", error);
       return false;
@@ -121,6 +115,7 @@ export const MusicService = {
     environment?: string;
     timeOfDay?: string;
     location?: string;
+    userAction?: string;
   }): Promise<Song[]> {
     try {
       const queryParams = new URLSearchParams();
@@ -129,158 +124,149 @@ export const MusicService = {
       if (context?.timeOfDay)
         queryParams.append("timeOfDay", context.timeOfDay);
       if (context?.location) queryParams.append("location", context.location);
+      if (context?.userAction)
+        queryParams.append("userAction", context.userAction);
 
-      const url = `${API_ENDPOINTS.GET_PLAYLISTS}?${queryParams.toString()}`;
-      console.log("Fetching songs from:", url);
-
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch playlists: ${response.statusText}`);
-      }
+      const response = await fetch(
+        `${API_ENDPOINTS.PLAYLISTS}?${queryParams.toString()}`
+      );
+      if (!response.ok) throw new Error("Failed to fetch songs");
 
       const data = await response.json();
-
-      // Map backend response to Song type
-      // Assuming backend returns snake_case or similar.
       return data.map((item: any) => ({
-        id: item.id?.toString() || Math.random().toString(),
-        title: item.title || "Unknown Title",
-        artist: item.artist || "Unknown Artist",
+        id: item.id.toString(),
+        title: item.title,
+        artist: item.artist,
         url: item.url,
-        coverUrl: item.cover_url,
-        duration: item.duration || 0,
+        duration: item.duration,
+        relevanceScore: item.relevance_score || item.popularity_score,
       }));
     } catch (error) {
-      console.error("Failed to fetch songs:", error);
-      // Return local uploaded songs + mock data as fallback if backend fails
-      return [
-        ...uploadedSongs,
-        {
-          id: "1",
-          title: "Morning Boost",
-          artist: "SmartSense Mix",
-          url: "https://res.cloudinary.com/demo/video/upload/v1/docs/guitar-strum.mp3",
-          duration: 225,
-        },
-        {
-          id: "2",
-          title: "Focus Flow",
-          artist: "Ambient Works",
-          url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-          duration: 360,
-        },
-      ];
+      console.error("Error fetching songs:", error);
+      return [];
     }
   },
+};
 
-  async getRecommendation(context: any): Promise<Song | null> {
-    try {
-      // const response = await fetch(API_ENDPOINTS.GET_RECOMMENDATIONS, {
-      //   method: 'POST',
-      //   body: JSON.stringify(context)
-      // });
-      // return await response.json();
-
-      // Mock recommendation
-      const songs = await this.getSongs();
-      return songs[0];
-    } catch (error) {
-      console.error("Failed to get recommendation:", error);
-      return null;
-    }
-  },
-
+export const LocationService = {
   async saveLocation(
     userId: string,
-    location: Omit<SavedLocation, "id">
+    name: string,
+    lat: number,
+    lng: number
   ): Promise<SavedLocation | null> {
     try {
-      const payload = {
-        user_id: userId,
-        location_name: location.name,
-        lat: location.latitude,
-        lng: location.longitude,
-      };
-
-      console.log("Saving location to backend:", payload);
-
       const response = await fetch(API_ENDPOINTS.GEOLOCATIONS, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          lat,
+          lan: lng,
+          userId,
+        }),
       });
+      console.log(userId);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-          `Failed to save location: ${response.status} ${response.statusText} - ${errorText}`
-        );
-      }
-
+      if (!response.ok) throw new Error("Failed to save location");
       const data = await response.json();
-
-      // Assuming backend returns the created location object with an ID
-      const newLocation: SavedLocation = {
-        id: data.id?.toString() || Date.now().toString(),
-        name: data.location_name || location.name,
-        latitude: data.lat || location.latitude,
-        longitude: data.lng || location.longitude,
-        address: location.address, // Backend might not return address if it only stores coords
+      const location = data.location;
+      return {
+        id: location.id.toString(),
+        name: location.name,
+        latitude: parseFloat(location.lat),
+        longitude: parseFloat(location.lan),
       };
-
-      savedLocations.push(newLocation);
-      return newLocation;
     } catch (error) {
-      console.error("Failed to save location:", error);
+      console.error("Error saving location:", error);
       return null;
     }
   },
 
   async getLocations(userId: string): Promise<SavedLocation[]> {
     try {
-      const url = `${API_ENDPOINTS.GEOLOCATIONS}/${userId}`;
-
-      console.log("Fetching locations from:", url);
-
-      const response = await fetch(url);
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-          `Failed to fetch locations: ${response.status} ${response.statusText} - ${errorText}`
-        );
-      }
-
+      const response = await fetch(`${API_ENDPOINTS.GEOLOCATIONS}/${userId}`);
+      if (!response.ok) throw new Error("Failed to fetch locations");
       const data = await response.json();
-
-      // Map backend response to SavedLocation type
-      const mappedLocations: SavedLocation[] = data.map((item: any) => ({
-        id: item.id?.toString() || Math.random().toString(),
-        name: item.location_name || "Unknown",
+      return data.map((item: any) => ({
+        id: item.id.toString(),
+        name: item.name,
         latitude: parseFloat(item.lat),
-        longitude: parseFloat(item.lng),
-        address: item.address || "Unknown Address", // Optional if backend doesn't store it
+        longitude: parseFloat(item.lan),
       }));
-
-      // Update local cache
-      savedLocations = mappedLocations;
-      return mappedLocations;
     } catch (error) {
-      console.error("Failed to fetch locations:", error);
-      // Fallback to local cache if backend fails
-      return savedLocations;
+      console.error("Error fetching locations:", error);
+      return [];
     }
   },
 
   async deleteLocation(id: string): Promise<boolean> {
     try {
-      console.log("Deleting location from backend:", id);
-      savedLocations = savedLocations.filter((l) => l.id !== id);
+      const response = await fetch(`${API_ENDPOINTS.GEOLOCATIONS}/${id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("Failed to delete location");
       return true;
     } catch (error) {
-      console.error("Failed to delete location:", error);
+      console.error("Error deleting location:", error);
       return false;
+    }
+  },
+};
+
+export const InteractionService = {
+  async recordInteraction(
+    userId: string,
+    playlistId: string,
+    action: "play" | "like" | "skip"
+  ) {
+    try {
+      await fetch(API_ENDPOINTS.INTERACTIONS, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          playlist_id: playlistId,
+          action,
+        }),
+      });
+    } catch (error) {
+      console.error("Error recording interaction:", error);
+    }
+  },
+};
+
+export const MetadataService = {
+  async getTimeOfDay(): Promise<TimeOfDay[]> {
+    try {
+      const response = await fetch(`${API_ENDPOINTS.TIMEOFTHEDAY}`);
+      if (!response.ok) throw new Error("Failed to fetch time of day");
+      return await response.json();
+    } catch (error) {
+      console.error("Error fetching time of day:", error);
+      return [];
+    }
+  },
+
+  async getEnvironments(): Promise<Environment[]> {
+    try {
+      const response = await fetch(`${API_ENDPOINTS.ENVIRONMENTS}`);
+      if (!response.ok) throw new Error("Failed to fetch environments");
+      return await response.json();
+    } catch (error) {
+      console.error("Error fetching environments:", error);
+      return [];
+    }
+  },
+
+  async getUserActions(): Promise<UserAction[]> {
+    try {
+      const response = await fetch(`${API_ENDPOINTS.USERACTIONS}`);
+      if (!response.ok) throw new Error("Failed to fetch user actions");
+      return await response.json();
+    } catch (error) {
+      console.error("Error fetching user actions:", error);
+      return [];
     }
   },
 };

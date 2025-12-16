@@ -1,10 +1,21 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Palette } from "@/constants/theme";
-import { MusicService } from "@/services/backend";
+import {
+  Environment,
+  LocationService,
+  MetadataService,
+  MusicService,
+  SavedLocation,
+  TimeOfDay,
+  UserAction,
+} from "@/services/backend";
+import { useUser } from "@clerk/clerk-expo";
 import * as DocumentPicker from "expo-document-picker";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Location from "expo-location";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -16,43 +27,77 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useAuth } from "@/context/AuthContext";
-
-const TIME_OPTIONS = ["Morning", "Afternoon", "Evening", "Night"];
-const ENV_OPTIONS = [
-  "Indoor",
-  "Outdoor",
-  "Gym",
-  "Commute",
-  "Dark",
-  "Bright",
-  "Office",
-  "Cafe",
-  "Park",
-  "Beach",
-  "Rainy",
-  "Sunny",
-  "Study",
-  "Party",
-  "Relax",
-  "Sleep",
-  "Drive",
-  "Walk",
-];
 
 export default function UploadScreen() {
+  const { user } = useUser();
   const router = useRouter();
-  const { user } = useAuth();
+
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
-  const [selectedTimes, setSelectedTimes] = useState<string[]>([
-    TIME_OPTIONS[0],
-  ]);
-  const [selectedEnvs, setSelectedEnvs] = useState<string[]>([ENV_OPTIONS[0]]);
+
+  const [locations, setLocations] = useState<SavedLocation[]>([]);
+  const [timeOptions, setTimeOptions] = useState<TimeOfDay[]>([]);
+  const [envOptions, setEnvOptions] = useState<Environment[]>([]);
+  const [userActionOptions, setUserActionOptions] = useState<UserAction[]>([]);
+
+  const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
+  const [selectedTimeIds, setSelectedTimeIds] = useState<string[]>([]);
+  const [selectedEnvIds, setSelectedEnvIds] = useState<string[]>([]);
+  const [selectedUserActionIds, setSelectedUserActionIds] = useState<string[]>(
+    []
+  );
+
   const [file, setFile] = useState<DocumentPicker.DocumentPickerAsset | null>(
     null
   );
+  const [detectedLocationName, setDetectedLocationName] = useState("Unknown");
   const [isUploading, setIsUploading] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted") {
+          const loc = await Location.getCurrentPositionAsync({});
+          const reverse = await Location.reverseGeocodeAsync({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+          if (reverse.length > 0) {
+            const addr = reverse[0];
+            const name = `${addr.city || ""}, ${addr.region || ""}`.trim();
+            if (name) setDetectedLocationName(name);
+          }
+        }
+      } catch (e) {
+        console.log("Failed to get location for upload", e);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      loadData();
+    }
+  }, [user]);
+
+  const loadData = async () => {
+    if (!user) return;
+    try {
+      const [locs, times, envs, actions] = await Promise.all([
+        LocationService.getLocations(user.id),
+        MetadataService.getTimeOfDay(),
+        MetadataService.getEnvironments(),
+        MetadataService.getUserActions(),
+      ]);
+      setLocations(locs);
+      setTimeOptions(times);
+      setEnvOptions(envs);
+      setUserActionOptions(actions);
+    } catch (e) {
+      console.error("Failed to load data", e);
+    }
+  };
 
   const pickDocument = async () => {
     try {
@@ -74,18 +119,6 @@ export default function UploadScreen() {
     }
   };
 
-  const toggleSelection = (
-    item: string,
-    list: string[],
-    setList: (items: string[]) => void
-  ) => {
-    if (list.includes(item)) {
-      setList(list.filter((i) => i !== item));
-    } else {
-      setList([...list, item]);
-    }
-  };
-
   const handleUpload = async () => {
     if (!file || !title || !artist) {
       Alert.alert(
@@ -95,42 +128,71 @@ export default function UploadScreen() {
       return;
     }
 
-    if (selectedTimes.length === 0 || selectedEnvs.length === 0) {
+    if (
+      selectedTimeIds.length === 0 ||
+      selectedEnvIds.length === 0 ||
+      selectedUserActionIds.length === 0
+    ) {
       Alert.alert(
         "Missing Information",
-        "Please select at least one time and environment."
+        "Please select at least one time, environment, and user action."
       );
       return;
     }
 
     setIsUploading(true);
     try {
-      const success = await MusicService.uploadMusic(
-        file.uri,
-        {
-          title,
-          artist,
-          timeOfDay: selectedTimes,
-          environment: selectedEnvs,
-          location: "Unknown", // TODO: Get real location
-        },
-        user ? user.id : ""
-      );
+      if (!user) {
+        Alert.alert("Error", "You must be logged in to upload music.");
+        setIsUploading(false);
+        return;
+      }
+
+      // Map IDs to names for backend if needed, or just use IDs if backend expects IDs.
+      // Assuming backend expects names based on previous code.
+      const selectedTimeNames = timeOptions
+        .filter((t) => selectedTimeIds.includes(t.id))
+        .map((t) => t.name);
+
+      const selectedEnvNames = envOptions
+        .filter((e) => selectedEnvIds.includes(e.id))
+        .map((e) => e.name);
+
+      const selectedUserActionNames = userActionOptions
+        .filter((a) => selectedUserActionIds.includes(a.id))
+        .map((a) => a.name);
+
+      const selectedLocationNames = locations
+        .filter((l) => selectedLocationIds.includes(l.id))
+        .map((l) => l.name);
+
+      // If no location selected, maybe use detected location?
+      // Or just join selected locations.
+      const locationString =
+        selectedLocationNames.length > 0
+          ? selectedLocationNames.join(", ")
+          : detectedLocationName;
+
+      const success = await MusicService.uploadMusic(file.uri, {
+        title,
+        artist,
+        timeOfDay: selectedTimeNames,
+        environment: selectedEnvNames,
+        userActions: selectedUserActionNames,
+        location: locationString,
+        userId: user.id,
+      });
 
       if (success) {
         Alert.alert("Success", "Music uploaded successfully!");
-        console.log("Music uploaded:", {
-          title,
-          artist,
-          selectedTimes,
-          selectedEnvs,
-        });
         // Reset form
         setTitle("");
         setArtist("");
         setFile(null);
-        setSelectedTimes([TIME_OPTIONS[0]]);
-        setSelectedEnvs([ENV_OPTIONS[0]]);
+        setSelectedTimeIds([]);
+        setSelectedEnvIds([]);
+        setSelectedUserActionIds([]);
+        setSelectedLocationIds([]);
         // Navigate to music tab to see the new song
         router.push("/(tabs)/music");
       } else {
@@ -185,55 +247,37 @@ export default function UploadScreen() {
             onChangeText={setArtist}
           />
 
-          <Text style={styles.label}>Time of Day (Select multiple)</Text>
-          <View style={styles.optionsContainer}>
-            {TIME_OPTIONS.map((option) => {
-              const isSelected = selectedTimes.includes(option);
-              return (
-                <TouchableOpacity
-                  key={option}
-                  style={[styles.optionChip, isSelected && styles.activeOption]}
-                  onPress={() =>
-                    toggleSelection(option, selectedTimes, setSelectedTimes)
-                  }
-                >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      isSelected && styles.activeOptionText,
-                    ]}
-                  >
-                    {option}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <MultiSelect
+            label="Locations"
+            options={locations}
+            selectedValues={selectedLocationIds}
+            onSelectionChange={setSelectedLocationIds}
+            placeholder="Select locations..."
+          />
 
-          <Text style={styles.label}>Environment (Select multiple)</Text>
-          <View style={styles.optionsContainer}>
-            {ENV_OPTIONS.map((option) => {
-              const isSelected = selectedEnvs.includes(option);
-              return (
-                <TouchableOpacity
-                  key={option}
-                  style={[styles.optionChip, isSelected && styles.activeOption]}
-                  onPress={() =>
-                    toggleSelection(option, selectedEnvs, setSelectedEnvs)
-                  }
-                >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      isSelected && styles.activeOptionText,
-                    ]}
-                  >
-                    {option}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <MultiSelect
+            label="Time of Day"
+            options={timeOptions}
+            selectedValues={selectedTimeIds}
+            onSelectionChange={setSelectedTimeIds}
+            placeholder="Select time of day..."
+          />
+
+          <MultiSelect
+            label="Environment"
+            options={envOptions}
+            selectedValues={selectedEnvIds}
+            onSelectionChange={setSelectedEnvIds}
+            placeholder="Select environments..."
+          />
+
+          <MultiSelect
+            label="User Actions"
+            options={userActionOptions}
+            selectedValues={selectedUserActionIds}
+            onSelectionChange={setSelectedUserActionIds}
+            placeholder="Select user actions..."
+          />
 
           <TouchableOpacity
             style={[styles.uploadButton, isUploading && styles.disabledButton]}
@@ -306,6 +350,20 @@ const styles = StyleSheet.create({
     color: Palette.white,
     marginLeft: 10,
     fontSize: 16,
+  },
+  locationBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 215, 0, 0.1)",
+    padding: 10,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+    gap: 8,
+  },
+  locationText: {
+    color: Palette.gold,
+    fontSize: 14,
+    fontWeight: "600",
   },
   optionsContainer: {
     flexDirection: "row",
