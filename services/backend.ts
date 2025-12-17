@@ -125,7 +125,7 @@ export const MusicService = {
         timeOfDay: context?.timeOfDay || null,
         location: context?.location || null,
         action: context?.action || null,
-        limit: 2,
+        limit: 5,
         user: context?.userId,
       };
       console.log("MusicService.getSongs request:", url, body);
