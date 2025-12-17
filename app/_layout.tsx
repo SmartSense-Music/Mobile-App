@@ -10,6 +10,7 @@ import { useEffect } from "react";
 import "react-native-reanimated";
 
 import { AuthProvider } from "@/context/AuthContext";
+import { SensorProvider } from "@/context/SensorContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { tokenCache } from "@/services/tokenCache";
 
@@ -46,10 +47,14 @@ function InitialLayout() {
 
   return (
     <AuthProvider>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-        <Slot />
-        <StatusBar style="auto" />
-      </ThemeProvider>
+      <SensorProvider>
+        <ThemeProvider
+          value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+        >
+          <Slot />
+          <StatusBar style="auto" />
+        </ThemeProvider>
+      </SensorProvider>
     </AuthProvider>
   );
 }

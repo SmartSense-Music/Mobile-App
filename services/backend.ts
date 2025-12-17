@@ -120,29 +120,35 @@ export const MusicService = {
   }): Promise<Song[]> {
     try {
       const url = `${API_ENDPOINTS.PLAYLISTS}/recommend`;
+      const body = {
+        environment: context?.environment || null,
+        timeOfDay: context?.timeOfDay || null,
+        location: context?.location || null,
+        action: context?.action || null,
+        limit: 2,
+        user: context?.userId,
+      };
+      console.log("MusicService.getSongs request:", url, body);
+
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          environment: context?.environment || null,
-          timeOfDay: context?.timeOfDay || null,
-          location: context?.location || null,
-          action: context?.action || null,
-          limit: 20,
-          user: context?.userId,
-        }),
+        body: JSON.stringify(body),
       });
       if (!response.ok) {
         console.error("getSongs failed:", { url, status: response.status });
+        const text = await response.text();
+        console.error("Error response body:", text);
         throw new Error(`Failed to fetch songs (status ${response.status})`);
       }
 
       const data = await response.json();
+      console.log("MusicService.getSongs response:", data);
 
       // Handle different response formats
       const songsList = Array.isArray(data)
         ? data
-        : data.songs || data.data || [];
+        : data.recommendations || data.songs || data.data || [];
 
       if (!Array.isArray(songsList)) {
         console.error("Unexpected API response format:", data);
@@ -154,7 +160,10 @@ export const MusicService = {
         title: item.title,
         artist: item.artist,
         url: item.url,
-        duration: item.duration,
+        duration:
+          typeof item.duration === "string"
+            ? parseFloat(item.duration)
+            : item.duration,
         relevanceScore: item.score,
       }));
     } catch (error) {

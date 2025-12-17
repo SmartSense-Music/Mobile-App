@@ -1,5 +1,6 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
+import { useSensor } from "@/context/SensorContext";
 import { LocationService, SavedLocation } from "@/services/backend";
 import { useUser } from "@clerk/clerk-expo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -54,12 +55,18 @@ const THEMES = {
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useUser();
+  const {
+    timeOfDay,
+    setTimeOfDay,
+    environment,
+    setEnvironment,
+    locationName,
+    setLocationName,
+    userAction: activity,
+    setUserAction: setActivity,
+  } = useSensor();
 
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
-  const [activity, setActivity] = useState("Stationary");
-  const [environment, setEnvironment] = useState("Indoors");
-  const [timeOfDay, setTimeOfDay] = useState("Day");
-  const [locationName, setLocationName] = useState("Unknown");
   const [soundLevel, setSoundLevel] = useState(0);
   const [gpsAccuracy, setGpsAccuracy] = useState(0);
   const [lightLevel, setLightLevel] = useState(0);
@@ -146,7 +153,7 @@ export default function HomeScreen() {
       }
 
       // 3. Sound (Brief sampling)
-      if (isRecordingRef.current) return; 
+      if (isRecordingRef.current) return;
 
       try {
         const { status } = await Audio.requestPermissionsAsync();
@@ -222,9 +229,9 @@ export default function HomeScreen() {
 
     // 1. Quiet vs Noisy (Sound)
     if (soundLevel > -20) {
-      env = "Noisy Environment";
+      env = "Noisy";
     } else if (soundLevel < -50) {
-      env = "Quiet Environment";
+      env = "Quiet";
     }
     // 2. Indoor vs Outdoor (GPS Accuracy)
     // High accuracy (< 20m) -> Outdoor (GPS)
@@ -236,17 +243,17 @@ export default function HomeScreen() {
     }
     // 3. Bright vs Dim (Light Sensor)
     else if (lightLevel > 500) {
-      env = "Bright Environment";
+      env = "Bright";
     } else if (lightLevel < 50 && lightLevel >= 0) {
-      env = "Dim Environment";
+      env = "Dim";
     }
     // Fallback to Time of Day for Light if sensor not available/neutral
     else {
       const hour = new Date().getHours();
       if (hour >= 6 && hour < 18) {
-        env = "Bright Environment";
+        env = "Bright";
       } else {
-        env = "Dim Environment";
+        env = "Dim";
       }
     }
 

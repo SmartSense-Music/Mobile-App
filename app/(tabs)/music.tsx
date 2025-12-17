@@ -1,11 +1,11 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Palette } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
+import { useSensor } from "@/context/SensorContext";
 import { InteractionService, MusicService, Song } from "@/services/backend";
 import { Audio } from "expo-av";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -18,33 +18,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
+import Animated, { FadeInDown } from "react-native-reanimated";
 const { width } = Dimensions.get("window");
-
-// Utility to ensure parameters always come in correct format
-function parseParam(param: any, fallback: string) {
-  if (!param) return fallback;
-  if (Array.isArray(param)) return param[0] || fallback;
-  return param;
-}
 
 export default function MusicScreen() {
   const { user } = useAuth();
-  const params = useLocalSearchParams();
-
-  // Default time logic
-  const defaultTimeOfDay =
-    new Date().getHours() < 12
-      ? "Morning"
-      : new Date().getHours() < 18
-      ? "Afternoon"
-      : "Evening";
-
-  // FIX: Normalize all params coming from Home tab
-  const timeOfDay = parseParam(params.timeOfDay, defaultTimeOfDay);
-  const locationName = parseParam(params.locationName, "Unknown");
-  const environment = parseParam(params.environment, "");
-  const userAction = parseParam(params.userAction, "Stationary");
+  const { timeOfDay, locationName, environment, userAction } = useSensor();
 
   const [playlist, setPlaylist] = useState<Song[]>([]);
   const [currentTrack, setCurrentTrack] = useState<Song | null>(null);
@@ -125,7 +104,7 @@ export default function MusicScreen() {
   const loadSongs = async () => {
     setIsLoading(true);
 
-    console.log("Fetching playlist for:", musicContext);
+    console.log("Fetching playlist for:", musicContext, "User ID:", user?.id);
 
     const songs = await MusicService.getSongs({
       timeOfDay: musicContext.timeOfDay,
@@ -137,8 +116,20 @@ export default function MusicScreen() {
 
     setPlaylist(songs);
 
-    if (songs.length > 0 && !currentTrack) {
-      setCurrentTrack(songs[0]);
+    if (songs.length > 0) {
+      const firstSong = songs[0];
+      // If current track is different from the new first song, reset
+      if (!currentTrack || currentTrack.id !== firstSong.id) {
+        setCurrentTrack(firstSong);
+
+        // Unload previous sound so "Play" starts the new song
+        if (soundRef.current) {
+          await soundRef.current.unloadAsync();
+          soundRef.current = null;
+          setSound(null);
+          setIsPlaying(false);
+        }
+      }
     }
 
     setIsLoading(false);
@@ -218,6 +209,13 @@ export default function MusicScreen() {
       }
     }
   };
+
+  console.log("Render State:", {
+    isLoading,
+    playlistLength: playlist.length,
+    currentTrackId: currentTrack?.id,
+    isPlaying,
+  });
 
   return (
     <View style={styles.container}>
@@ -318,68 +316,74 @@ export default function MusicScreen() {
             </View>
           </Animated.View>
 
-          <Animated.View
-            entering={FadeInUp.delay(500).duration(600)}
-            style={styles.playlistContainer}
-          >
+          <View style={styles.playlistContainer}>
             <BlurView intensity={30} tint="dark" style={styles.blurList}>
               <Text style={styles.sectionTitle}>
-                CURATED FOR {musicContext.environment.toUpperCase() || "YOU"}
+                CURATED FOR {(musicContext.environment || "YOU").toUpperCase()}
               </Text>
-              <FlatList
-                data={playlist}
-                keyExtractor={(item) => item.id}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 100 }}
-                renderItem={({ item, index }) => (
-                  <TouchableOpacity onPress={() => playSound(item)}>
-                    <Animated.View
-                      entering={FadeInDown.delay(600 + index * 100).duration(
-                        500
-                      )}
-                      style={[
-                        styles.trackItem,
-                        currentTrack?.id === item.id && styles.activeTrackItem,
-                      ]}
-                    >
-                      <View style={styles.trackIcon}>
-                        <IconSymbol
-                          name="music.note"
-                          size={20}
-                          color={
-                            currentTrack?.id === item.id
-                              ? Palette.gold
-                              : Palette.lightGray
-                          }
-                        />
-                      </View>
+              {playlist.length === 0 ? (
+                <View style={styles.center}>
+                  <Text style={{ color: Palette.subText }}>
+                    No music found for this context.
+                  </Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={playlist}
+                  keyExtractor={(item) => item.id}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{ paddingBottom: 100 }}
+                  renderItem={({ item, index }) => (
+                    <TouchableOpacity onPress={() => playSound(item)}>
+                      <View
+                        style={[
+                          styles.trackItem,
+                          currentTrack?.id === item.id &&
+                            styles.activeTrackItem,
+                        ]}
+                      >
+                        <View style={styles.trackIcon}>
+                          <IconSymbol
+                            name="music.note"
+                            size={20}
+                            color={
+                              currentTrack?.id === item.id
+                                ? Palette.gold
+                                : Palette.lightGray
+                            }
+                          />
+                        </View>
 
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={[
-                            styles.itemTitle,
-                            currentTrack?.id === item.id &&
-                              styles.activeTrackText,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {item.title}
-                        </Text>
-                        <Text style={styles.itemArtist} numberOfLines={1}>
-                          {item.artist}
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.itemTitle,
+                              currentTrack?.id === item.id &&
+                                styles.activeTrackText,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {item.title}
+                          </Text>
+                          <Text style={styles.itemArtist} numberOfLines={1}>
+                            {item.artist}
+                          </Text>
+                        </View>
+
+                        <Text style={styles.itemDuration}>
+                          {Math.floor(item.duration / 60)}.
+                          {String(Math.floor(item.duration % 60)).padStart(
+                            2,
+                            "0"
+                          )}
                         </Text>
                       </View>
-
-                      <Text style={styles.itemDuration}>
-                        {Math.floor(item.duration / 60)}:
-                        {String(item.duration % 60).padStart(2, "0")}
-                      </Text>
-                    </Animated.View>
-                  </TouchableOpacity>
-                )}
-              />
+                    </TouchableOpacity>
+                  )}
+                />
+              )}
             </BlurView>
-          </Animated.View>
+          </View>
         </>
       )}
     </View>
