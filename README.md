@@ -1,50 +1,84 @@
-# Welcome to your Expo app 👋
+# SmartSense Music
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+SmartSense Music is an intelligent, context aware mobile application built with React Native and Expo. It uses device sensors and location data to adapt the user experience and music recommendations based on the user's current environment, time of day, and activity.
 
-## Get started
+## Features
 
-1. Install dependencies
+- **Context Awareness**: Automatically detects and adapts to:
+  - **Time of Day** (Morning, Afternoon, Evening, Night)
+  - **Location** (GPS coordinates and saved locations)
+  - **Environment** (Light levels, Sound levels)
+  - **User Activity** (Stationary, Walking, etc. via Accelerometer)
+- **Authentication**: Secure user authentication using Clerk.
+- **Dynamic Theming**: UI adapts based on sensor data and system preferences.
+- **Tab Navigation**: Easy access to Music, Uploads, Settings, and Home dashboard.
+- **File Uploads**: Integration with Expo Document Picker.
+- **Sensor Integration**: Utilizes device sensors (Accelerometer, LightSensor) and location services.
 
+## Tech Stack
+
+- **Framework**: [React Native](https://reactnative.dev/) with [Expo](https://expo.dev/) (SDK 54)
+- **Language**: [TypeScript](https://www.typescriptlang.org/)
+- **Routing**: [Expo Router](https://docs.expo.dev/router/introduction/) (File-based routing)
+- **Authentication**: [Clerk](https://clerk.com/)
+- **Styling**: React Native StyleSheet, Expo Linear Gradient, Expo Blur
+- **Animations**: [React Native Reanimated](https://docs.swmansion.com/react-native-reanimated/)
+- **Sensors**: Expo Sensors, Expo Location, Expo AV
+
+## Prerequisites
+
+- Node.js (LTS recommended)
+- [Expo Go](https://expo.dev/go) app on your mobile device (iOS/Android) or an emulator.
+
+## Configuration
+
+You need to set up your environment variables. Create a `.env` file in the root directory (or ensure your environment has them):
+
+```
+EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+```
+
+## Installation
+
+1. Clone the repository:
+
+   ```bash
+   git clone <repository-url>
+   cd smartsense-music
+   ```
+
+2. Install dependencies:
    ```bash
    npm install
    ```
 
-2. Start the app
+## Running the App
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+Start the development server:
 
 ```bash
-npm run reset-project
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+- **Scan the QR code** with the Expo Go app (Android) or Camera app (iOS).
+- Press `a` to open in Android Emulator.
+- Press `i` to open in iOS Simulator.
+- Press `w` to open in Web browser.
 
-## Learn more
+## Project Structure
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```
+d:\Mobile-App\
+├── app/                 # Expo Router pages and layouts
+│   ├── (auth)/          # Authentication routes (Sign In/Up)
+│   ├── (tabs)/          # Main app tabs (Home, Music, Settings, Upload)
+│   ├── _layout.tsx      # Root layout with providers
+│   └── ...
+├── assets/              # Images and static assets
+├── components/          # Reusable UI components
+├── constants/           # App configuration and themes
+├── context/             # React Contexts (Auth, Sensor)
+├── hooks/               # Custom React hooks
+├── services/            # API and utility services
+└── ...
+```
